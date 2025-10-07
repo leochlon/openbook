@@ -7,7 +7,7 @@
 ## Current Contributors
 
 ### Primary Author
-- **[Your Name]** - Chapter structure, primary content, overall narrative arc
+- **[Leon Chlon]** - Chapter structure, primary content, overall narrative arc
 
 ### Contributing Authors
 *Contributors will be listed here as they make substantive contributions*

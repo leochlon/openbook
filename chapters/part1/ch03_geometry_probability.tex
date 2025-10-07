@@ -1,0 +1,919 @@
+%==========================
+% Chapter 3: The Geometry of Probability
+%==========================
+
+\chapter{The Geometry of Probability}
+
+\begin{keyinsight}
+Probability distributions are not just functions. They live in a geometric space with structure. Distances between distributions have meaning. Moving from one distribution to another follows curved paths. Understanding this geometry reveals why certain learning algorithms work, why natural gradients outperform standard gradients, and how information flows through models.
+\end{keyinsight}
+
+\vspace{1.5em}
+
+In the previous chapters, we learned that learning is compression and that Bayesian inference gives us a principled way to reason about uncertainty. But there is something deeper going on. Probability distributions have geometric structure. They live in a curved space where distances, angles, and paths have precise mathematical meaning.
+
+This geometric perspective transforms how we think about learning. When you update a model, you are moving from one point to another in this curved space. When you measure how different two distributions are, you are measuring a distance in this geometry. When you optimize with gradient descent, you are following a path through this space.
+
+Understanding this geometry is not just mathematical elegance. It has immediate practical consequences. Natural gradient descent, which follows the geometry of probability distributions, converges faster than ordinary gradient descent. Mirror descent, which uses the geometric structure of the space, gives better optimization for certain problems. Maximum entropy methods, which have deep connections to information geometry, give us principled ways to construct priors and regularizers.
+
+This chapter will teach you the core concepts of information geometry. We start with KL divergence, which is the fundamental "distance" between probability distributions. Then we explore the Fisher information metric, which defines the local geometry of the statistical manifold. We will see how there are two dual ways to project one distribution onto another, and how these projections explain the difference between Bayesian inference and variational inference. Finally, we will see how these geometric ideas translate into practical algorithms for optimization.
+
+The mathematics here can get intense, but I will give you plenty of breathing room. Each concept gets space to settle before we move to the next. And I will show you concrete examples at every step so you can see the geometry in action.
+
+\vspace{2em}
+
+%==========================
+\section{KL Divergence: The Fundamental Asymmetric Distance}
+
+\subsection{What Is KL Divergence?}
+
+KL divergence, also called relative entropy or Kullback Leibler divergence, measures how different one probability distribution is from another. Given two distributions $p$ and $q$ over the same space, the KL divergence from $q$ to $p$ is:
+
+\begin{equation}
+\text{KL}(p \| q) = \sum_{x} p(x) \log \frac{p(x)}{q(x)} = \mathbb{E}_{x \sim p}\left[\log \frac{p(x)}{q(x)}\right]
+\end{equation}
+
+For continuous distributions, replace the sum with an integral.
+
+Let me give you an intuition before we dive into the math. KL divergence answers this question: if the true distribution is $p$, how many extra bits do I waste on average if I use $q$ to encode data instead of using the optimal code based on $p$?
+
+\vspace{1em}
+
+Remember from Chapter 1 that the optimal code for a distribution assigns shorter codes to likely events and longer codes to unlikely events. If you know the true distribution $p$, you can construct the optimal code. But if you use the wrong distribution $q$ to construct your code, you waste bits. KL divergence quantifies exactly how many bits you waste.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{KL divergence for coin flips}
+
+\vspace{0.5em}
+
+Suppose the true probability of heads is $p = 0.7$. This is the distribution we want to encode. The optimal code would use $-\log_2(0.7) \approx 0.515$ bits for heads and $-\log_2(0.3) \approx 1.737$ bits for tails. The average code length (entropy) is:
+\begin{equation*}
+H(p) = 0.7 \times 0.515 + 0.3 \times 1.737 \approx 0.881 \text{ bits per flip}
+\end{equation*}
+
+\vspace{0.5em}
+
+Now suppose we incorrectly think the probability is $q = 0.5$ (fair coin). We design our code based on this wrong belief. Our code uses $-\log_2(0.5) = 1$ bit for heads and $1$ bit for tails. When we actually observe flips from the true distribution $p = 0.7$, the average code length becomes:
+\begin{equation*}
+\mathbb{E}_{p}[\text{code length using } q] = 0.7 \times 1 + 0.3 \times 1 = 1 \text{ bit per flip}
+\end{equation*}
+
+\vspace{0.5em}
+
+We are wasting $1 - 0.881 = 0.119$ bits per flip. This is exactly the KL divergence:
+\begin{equation*}
+\text{KL}(p \| q) = 0.7 \log \frac{0.7}{0.5} + 0.3 \log \frac{0.3}{0.5} \approx 0.119 \text{ bits}
+\end{equation*}
+
+\vspace{0.5em}
+
+The more different $q$ is from $p$, the more bits we waste, and the larger the KL divergence.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Key Properties of KL Divergence}
+
+Let me walk you through the essential properties one at a time. Take a breath after each one and make sure it makes sense.
+
+\vspace{1em}
+
+\textbf{Property 1: KL divergence is always non-negative.}
+
+\begin{equation}
+\text{KL}(p \| q) \geq 0
+\end{equation}
+
+And it equals zero if and only if $p = q$ everywhere. This follows from Jensen's inequality applied to the convex function $x \log x$.
+
+Why does this matter? It means KL divergence behaves like a distance. The more different two distributions are, the larger the KL divergence. If the distributions are identical, KL divergence is zero.
+
+\vspace{1em}
+
+\textbf{Property 2: KL divergence is asymmetric.}
+
+\begin{equation}
+\text{KL}(p \| q) \neq \text{KL}(q \| p) \text{ in general}
+\end{equation}
+
+This is crucial. KL divergence is not a true distance metric because distance should be symmetric. The divergence from $p$ to $q$ is different from the divergence from $q$ to $p$.
+
+This asymmetry has profound consequences. When you minimize $\text{KL}(p \| q)$, you get a different answer than when you minimize $\text{KL}(q \| p)$. We will explore this deeply in the section on projections.
+
+\vspace{1em}
+
+\textbf{Property 3: KL divergence is the extra bits in cross entropy.}
+
+\begin{equation}
+\text{KL}(p \| q) = H(p, q) - H(p)
+\end{equation}
+
+where $H(p, q) = \mathbb{E}_{p}[-\log q(x)]$ is the cross entropy and $H(p) = \mathbb{E}_{p}[-\log p(x)]$ is the entropy.
+
+Cross entropy measures how many bits you need when using code $q$ to encode data from $p$. Entropy measures the optimal bits if you knew $p$. The difference is the wasted bits, which is KL divergence.
+
+\vspace{1em}
+
+This is why minimizing cross entropy is the same as minimizing KL divergence (when $p$ is fixed, which it is in supervised learning: $p$ is the empirical distribution of the data).
+
+\vspace{1.5em}
+
+\subsection{Forward KL vs Reverse KL: A Critical Distinction}
+
+This is where things get interesting and a bit subtle. Stay with me, because this distinction explains a lot about how different algorithms behave.
+
+\vspace{1em}
+
+There are two ways to measure divergence from a target distribution $p$ to an approximation $q$:
+
+\begin{itemize}
+\item \textbf{Forward KL:} $\text{KL}(p \| q) = \mathbb{E}_{x \sim p}\left[\log \frac{p(x)}{q(x)}\right]$
+
+\item \textbf{Reverse KL:} $\text{KL}(q \| p) = \mathbb{E}_{x \sim q}\left[\log \frac{q(x)}{p(x)}\right]$
+\end{itemize}
+
+\vspace{1em}
+
+The difference is whether you average over $p$ or over $q$. This seems like a minor detail, but it completely changes the behavior of optimization.
+
+\vspace{1em}
+
+\textbf{Forward KL is zero avoiding.} It heavily penalizes $q$ for putting probability mass where $p$ has none. Why? Because if $p(x) = 0$ but $q(x) > 0$, the ratio $\log(p(x)/q(x)) = -\infty$ and we get infinite penalty. To minimize forward KL, $q$ must cover all regions where $p$ has mass. This is called mode covering or zero avoiding.
+
+\vspace{1em}
+
+\textbf{Reverse KL is zero forcing.} It heavily penalizes $q$ for missing probability mass where $p$ has mass. Why? Because if $q(x) = 0$ but $p(x) > 0$, the ratio $\log(q(x)/p(x)) = -\infty$ and we again get infinite penalty. But here the penalty is flipped. To minimize reverse KL, $q$ must put mass only where $p$ has mass, and it tends to concentrate on a single mode. This is called mode seeking or zero forcing.
+
+\vspace{2em}
+
+Let me give you a concrete example to make this vivid.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Mode covering vs mode seeking}
+
+\vspace{0.5em}
+
+Suppose the target distribution $p$ is a mixture of two Gaussians, one centered at $x = -3$ and one centered at $x = +3$. The distribution is bimodal: it has two peaks.
+
+\vspace{0.5em}
+
+Now suppose we want to approximate $p$ with a simpler distribution $q$ that is a single Gaussian. We have to choose the mean and variance of this Gaussian. Should we put it at one of the modes, or between them?
+
+\vspace{0.5em}
+
+\textbf{Minimizing forward KL: $\min_q \text{KL}(p \| q)$}
+
+Forward KL averages over samples from $p$. Since $p$ has mass at both $x = -3$ and $x = +3$, the approximation $q$ must cover both regions. The optimal $q$ will be a wide Gaussian centered at $x = 0$ (the midpoint) with large variance. It covers both modes but does not match either one perfectly. This is mode covering.
+
+\vspace{0.5em}
+
+\textbf{Minimizing reverse KL: $\min_q \text{KL}(q \| p)$}
+
+Reverse KL averages over samples from $q$. To minimize it, $q$ should avoid putting probability mass where $p$ has little mass. The optimal $q$ will be a narrow Gaussian centered at one of the two modes (say $x = -3$ or $x = +3$, depending on initialization). It concentrates on a single mode and ignores the other mode entirely. This is mode seeking.
+
+\vspace{0.5em}
+
+Same target distribution, same approximation family, but completely different results depending on which direction you measure KL divergence. Forward KL gives you a diffuse approximation that covers both modes weakly. Reverse KL gives you a sharp approximation that captures one mode strongly but ignores the other.
+
+\vspace{0.5em}
+
+Neither is right or wrong. They optimize for different objectives. Forward KL says "do not miss any region where the target has mass." Reverse KL says "do not waste probability mass where the target has little mass."
+\end{examplebox}
+
+\vspace{1.5em}
+
+Take a moment to absorb this. The direction of KL divergence determines whether your approximation will be conservative (covering all possibilities) or aggressive (picking the most likely possibility). This has huge implications for Bayesian inference, variational methods, and algorithm design. We will return to this when we discuss projections.
+
+\vspace{2em}
+
+%==========================
+\section{Other Divergences: JS, Bregman, and f-Divergences}
+
+Before we dive into the deep geometry, let me introduce a few other important divergences. Each has its own properties and use cases. I will keep these brief so you do not get overwhelmed, but knowing they exist will be useful.
+
+\vspace{1.5em}
+
+\subsection{Jensen Shannon Divergence}
+
+The Jensen Shannon (JS) divergence is a symmetrized version of KL divergence. It is defined as:
+
+\begin{equation}
+\text{JS}(p \| q) = \frac{1}{2}\text{KL}(p \| m) + \frac{1}{2}\text{KL}(q \| m)
+\end{equation}
+
+where $m = \frac{1}{2}(p + q)$ is the average distribution.
+
+\vspace{1em}
+
+The key property is that JS divergence is symmetric: $\text{JS}(p \| q) = \text{JS}(q \| p)$. It measures divergence from both $p$ and $q$ to their average. This makes it behave more like a true distance.
+
+JS divergence is bounded: $0 \leq \text{JS}(p \| q) \leq \log 2$ (in nats) or $0 \leq \text{JS}(p \| q) \leq 1$ (in bits). This is nice for optimization because the objective does not blow up.
+
+JS divergence shows up in GANs (generative adversarial networks). The original GAN objective can be interpreted as minimizing JS divergence between the generated distribution and the real data distribution. This symmetric property is one reason GANs can generate realistic samples.
+
+\vspace{1.5em}
+
+\subsection{Bregman Divergences}
+
+Bregman divergences are a general family of divergences based on convex functions. Given a strictly convex function $\phi$, the Bregman divergence is:
+
+\begin{equation}
+D_\phi(p \| q) = \phi(p) - \phi(q) - \langle \nabla \phi(q), p - q \rangle
+\end{equation}
+
+In words: the divergence is the difference between the function at $p$ and its first order Taylor approximation around $q$. If $\phi$ is strictly convex, this difference is always non-negative (by convexity).
+
+\vspace{1em}
+
+Many familiar divergences are Bregman divergences for specific choices of $\phi$:
+
+\begin{itemize}
+\item Squared Euclidean distance: $\phi(x) = \|x\|^2$ gives $D_\phi(p \| q) = \|p - q\|^2$
+
+\item KL divergence: $\phi(p) = \sum_x p(x) \log p(x)$ (negative entropy) gives KL divergence
+
+\item Itakura Saito divergence: used in audio processing, corresponds to $\phi(x) = -\log x$
+\end{itemize}
+
+\vspace{1em}
+
+Why care about Bregman divergences? Because they have nice properties for optimization. Mirror descent, which we will discuss later, is based on minimizing Bregman divergences. The choice of $\phi$ determines the geometry of the optimization landscape.
+
+\vspace{1.5em}
+
+\subsection{f-Divergences}
+
+f-divergences are the most general family of divergences. Given a convex function $f$ with $f(1) = 0$, the f-divergence is:
+
+\begin{equation}
+D_f(p \| q) = \mathbb{E}_{x \sim q}\left[f\left(\frac{p(x)}{q(x)}\right)\right]
+\end{equation}
+
+Different choices of $f$ give different divergences:
+
+\begin{itemize}
+\item $f(t) = t \log t$ gives KL divergence: $\text{KL}(p \| q)$
+
+\item $f(t) = -\log t$ gives reverse KL divergence: $\text{KL}(q \| p)$
+
+\item $f(t) = (t - 1)^2$ gives $\chi^2$ divergence
+
+\item $f(t) = |t - 1|$ gives total variation distance
+\end{itemize}
+
+\vspace{1em}
+
+f-divergences unify many notions of distribution distance under one framework. They are useful in generative modeling because you can design $f$ to have specific properties (like robustness to outliers or sensitivity to tail behavior).
+
+\vspace{2em}
+
+These divergences (JS, Bregman, f-divergences) are tools in your toolkit. You do not need to memorize every formula. The key takeaway is that there are many ways to measure distance between distributions, and each has different properties. KL divergence is the most fundamental because it connects directly to information theory (bits and compression), but the others have their place in specific applications.
+
+\vspace{2em}
+
+Take a break here if you need it. The next section gets into the geometric structure of the space of probability distributions, which is the heart of information geometry.
+
+\vspace{2em}
+
+%==========================
+\section{Fisher Information and the Riemannian Metric}
+
+\subsection{The Statistical Manifold}
+
+Let me introduce a powerful idea: the space of probability distributions is a manifold. A manifold is a mathematical object that locally looks like Euclidean space but globally can be curved.
+
+Think of the surface of the Earth. Locally (in your neighborhood), it looks flat. But globally, it is a curved sphere. You need coordinates to specify your position, but the coordinates are just labels. The intrinsic geometry (distances, angles, geodesics) is what matters.
+
+\vspace{1em}
+
+Similarly, the space of all probability distributions parameterized by $\theta$ forms a manifold. Each point on this manifold is a distribution $p(x \mid \theta)$. The coordinates are the parameters $\theta$. But the intrinsic geometry is defined by the Fisher information metric, not by the Euclidean distance in parameter space.
+
+\vspace{1.5em}
+
+\subsection{What Is Fisher Information?}
+
+The Fisher information matrix measures how much information the data carries about the parameters. It quantifies the sensitivity of the likelihood to changes in parameters.
+
+For a parametric family $p(x \mid \theta)$, the Fisher information matrix is:
+
+\begin{equation}
+I_{ij}(\theta) = \mathbb{E}_{x \sim p(\cdot \mid \theta)}\left[\frac{\partial \log p(x \mid \theta)}{\partial \theta_i} \frac{\partial \log p(x \mid \theta)}{\partial \theta_j}\right]
+\end{equation}
+
+This can also be written as the negative expected Hessian of the log likelihood:
+
+\begin{equation}
+I_{ij}(\theta) = -\mathbb{E}_{x \sim p(\cdot \mid \theta)}\left[\frac{\partial^2 \log p(x \mid \theta)}{\partial \theta_i \partial \theta_j}\right]
+\end{equation}
+
+\vspace{1em}
+
+What does this mean intuitively? If the likelihood changes rapidly when you perturb $\theta$ (large gradient of log likelihood), then small changes in $\theta$ produce big changes in the distribution. This means the data is very informative about $\theta$, so Fisher information is large.
+
+Conversely, if the likelihood is insensitive to $\theta$ (small gradient), then the data does not tell you much about $\theta$, and Fisher information is small.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Fisher information for a Gaussian}
+
+\vspace{0.5em}
+
+Suppose $p(x \mid \mu, \sigma^2) = \mathcal{N}(x; \mu, \sigma^2)$ is a Gaussian with unknown mean $\mu$ and known variance $\sigma^2$. What is the Fisher information about $\mu$?
+
+\vspace{0.5em}
+
+The log likelihood is:
+\begin{equation*}
+\log p(x \mid \mu) = -\frac{(x - \mu)^2}{2\sigma^2} - \frac{1}{2}\log(2\pi\sigma^2)
+\end{equation*}
+
+The score (gradient of log likelihood) is:
+\begin{equation*}
+\frac{\partial \log p(x \mid \mu)}{\partial \mu} = \frac{x - \mu}{\sigma^2}
+\end{equation*}
+
+The Fisher information is the expected squared score:
+\begin{equation*}
+I(\mu) = \mathbb{E}_{x \sim \mathcal{N}(\mu, \sigma^2)}\left[\left(\frac{x - \mu}{\sigma^2}\right)^2\right] = \frac{1}{\sigma^4}\mathbb{E}[(x - \mu)^2] = \frac{1}{\sigma^2}
+\end{equation*}
+
+\vspace{0.5em}
+
+Notice that Fisher information is inversely proportional to variance. If $\sigma^2$ is small (low noise), each observation is very informative about $\mu$, so Fisher information is large. If $\sigma^2$ is large (high noise), each observation tells you little about $\mu$, so Fisher information is small.
+
+\vspace{0.5em}
+
+If you have $n$ independent observations, the Fisher information scales as $n / \sigma^2$. This is why the standard error of the sample mean scales as $\sigma / \sqrt{n}$: uncertainty decreases as the square root of the amount of data.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{The Riemannian Metric}
+
+Now here is the key insight: the Fisher information matrix defines a Riemannian metric on the statistical manifold. A Riemannian metric tells you how to measure distances and angles in a curved space.
+
+In Euclidean space, the distance between two points is the straight line length. In a curved space, distances are measured along geodesics (the shortest paths on the curved surface). The Fisher information metric tells you what those geodesics are in the space of probability distributions.
+
+\vspace{1em}
+
+The infinitesimal distance between two nearby distributions $p(\cdot \mid \theta)$ and $p(\cdot \mid \theta + d\theta)$ is:
+
+\begin{equation}
+ds^2 = \sum_{i,j} I_{ij}(\theta) \, d\theta_i \, d\theta_j = d\theta^\top I(\theta) \, d\theta
+\end{equation}
+
+This is the Fisher Rao metric. It is the unique (up to scaling) Riemannian metric that is invariant under reparameterization. No matter how you choose to parameterize your distributions, the Fisher Rao distance between them stays the same.
+
+\vspace{1.5em}
+
+\subsection{Why Does This Geometry Matter?}
+
+You might wonder: why should I care about curved geometry? Can I not just use Euclidean distance in parameter space?
+
+The answer is that Euclidean distance in parameter space is arbitrary. It depends on how you choose to parameterize your model. If you reparameterize (say, by taking logarithms or applying a nonlinear transformation), Euclidean distances change. But the Fisher Rao distance does not change. It is intrinsic to the distributions themselves, not to the choice of coordinates.
+
+\vspace{1em}
+
+This has practical consequences:
+
+\begin{itemize}
+\item \textbf{Natural gradient descent} uses the Fisher information metric to compute gradients. It follows the geometry of the distribution space rather than the arbitrary geometry of parameter space. This often leads to faster convergence.
+
+\item \textbf{KL divergence is locally quadratic in the Fisher metric.} For small perturbations, $\text{KL}(p(\cdot \mid \theta) \| p(\cdot \mid \theta + \Delta\theta)) \approx \frac{1}{2} \Delta\theta^\top I(\theta) \Delta\theta$. This connects KL divergence (information theory) to Fisher information (geometry).
+
+\item \textbf{The Cramér Rao bound} says that the variance of any unbiased estimator is at least $1 / I(\theta)$. Fisher information sets a fundamental limit on how precisely you can estimate parameters from data.
+\end{itemize}
+
+\vspace{2em}
+
+Let me give you another example to make this concrete.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Why Euclidean distance in parameter space is misleading}
+
+\vspace{0.5em}
+
+Consider a categorical distribution over $k$ outcomes with probabilities $p_1, \ldots, p_k$ where $\sum_i p_i = 1$. You can parameterize this in two ways:
+
+\vspace{0.5em}
+
+\textbf{Parameterization 1:} Use the probabilities directly, $\theta = (p_1, \ldots, p_{k-1})$ (we omit $p_k$ since it is determined by the constraint $\sum p_i = 1$).
+
+\vspace{0.5em}
+
+\textbf{Parameterization 2:} Use log probabilities, $\theta = (\log p_1, \ldots, \log p_{k-1})$.
+
+\vspace{0.5em}
+
+Now consider two distributions: $p = (0.5, 0.5)$ and $q = (0.4, 0.6)$ for $k = 2$ outcomes.
+
+\vspace{0.5em}
+
+In Parameterization 1, the Euclidean distance is $|0.5 - 0.4| = 0.1$.
+
+\vspace{0.5em}
+
+In Parameterization 2, the Euclidean distance is $|\log(0.5) - \log(0.4)| = |\log(0.5/0.4)| \approx 0.223$.
+
+\vspace{0.5em}
+
+The Euclidean distances are different just because we chose different coordinates! This is absurd. The distributions themselves have not changed.
+
+\vspace{0.5em}
+
+But the Fisher Rao distance (and the KL divergence, which is closely related) does not depend on parameterization. It measures the intrinsic difference between the distributions, not the arbitrary difference in coordinate labels.
+
+\vspace{0.5em}
+
+This is why you should think in terms of information geometry, not Euclidean geometry, when working with probability distributions.
+\end{examplebox}
+
+\vspace{1.5em}
+
+Take a breather. The Fisher information metric is a deep concept, and it is fine if it feels a bit abstract right now. The key takeaway is: there is a natural geometry on the space of probability distributions, defined by Fisher information, and this geometry is what you should use to measure distances and optimize, not the arbitrary Euclidean geometry of parameters.
+
+\vspace{2em}
+
+%==========================
+\section{I-Projection and M-Projection: Two Ways to Approximate}
+
+Now we get to one of the most important concepts in information geometry: projections. Given a target distribution $p$ and a family of simpler distributions $\mathcal{Q}$, how do you find the best approximation $q \in \mathcal{Q}$?
+
+There are two natural ways to do this, and they give different answers. This is not a bug, it is a feature. The two projections optimize for different goals and have different geometric interpretations.
+
+\vspace{1.5em}
+
+\subsection{I-Projection (Information Projection)}
+
+The I-projection, also called the $I$ projection or moment projection, minimizes the forward KL divergence:
+
+\begin{equation}
+q^* = \arg\min_{q \in \mathcal{Q}} \text{KL}(p \| q)
+\end{equation}
+
+This is called I-projection because it projects $p$ onto $\mathcal{Q}$ in the direction of minimizing information loss from $p$ to $q$. The resulting $q^*$ is the distribution in $\mathcal{Q}$ that is closest to $p$ in the sense of forward KL.
+
+\vspace{1em}
+
+Remember the properties of forward KL: it is zero avoiding (mode covering). So I-projection produces an approximation that covers all regions where $p$ has mass, even if this means $q$ is more spread out than $p$.
+
+\vspace{1em}
+
+\textbf{Bayesian inference is I-projection.} When you compute the posterior $p(\theta \mid D)$, you are starting with a prior $p(\theta)$ and conditioning on the data. This is equivalent to projecting onto the set of distributions that match the observed data's likelihood. The posterior is the I-projection of the prior onto the constraint set.
+
+\vspace{1.5em}
+
+\subsection{M-Projection (Mixture Projection)}
+
+The M-projection, also called the $M$ projection or maximum likelihood projection, minimizes the reverse KL divergence:
+
+\begin{equation}
+q^* = \arg\min_{q \in \mathcal{Q}} \text{KL}(q \| p)
+\end{equation}
+
+This is called M-projection because it projects $q$ onto the manifold defined by $p$. The resulting $q^*$ is the distribution in $\mathcal{Q}$ that is closest to $p$ in the sense of reverse KL.
+
+\vspace{1em}
+
+Remember the properties of reverse KL: it is zero forcing (mode seeking). So M-projection produces an approximation that concentrates on the most likely regions of $p$, even if this means ignoring some modes.
+
+\vspace{1em}
+
+\textbf{Variational inference is M-projection.} When you do variational inference, you parameterize an approximate posterior $q(\theta)$ and minimize $\text{KL}(q \| p)$ where $p$ is the true posterior. This is M-projection. Variational inference seeks the mode of the posterior and ignores other modes.
+
+\vspace{1.5em}
+
+\subsection{Comparing the Two Projections}
+
+Let me give you a side by side comparison so you can see the differences clearly.
+
+\vspace{1em}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Property & I-Projection & M-Projection \\
+\midrule
+Objective & $\min \text{KL}(p \| q)$ & $\min \text{KL}(q \| p)$ \\
+Averaging & Over $p$ (target) & Over $q$ (approximation) \\
+Mode behavior & Mode covering & Mode seeking \\
+Typical use & Bayesian inference & Variational inference \\
+Computational & Often intractable & Usually tractable \\
+Uncertainty & Honest (covers all) & Overconfident (picks one) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{1.5em}
+
+The key insight is that I-projection and M-projection optimize for different things:
+
+\begin{itemize}
+\item I-projection says: "I want an approximation that does not miss any region where the target has mass." It is risk averse. It covers all possibilities, even if this means being less precise about each one.
+
+\item M-projection says: "I want an approximation that puts mass only where the target has mass." It is risk seeking. It concentrates on the most likely possibility, even if this means ignoring other possibilities.
+\end{itemize}
+
+\vspace{2em}
+
+Let me give you a detailed example to make this concrete.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{I-projection vs M-projection for a mixture}
+
+\vspace{0.5em}
+
+Suppose the target distribution $p$ is an equal mixture of two Gaussians:
+\begin{equation*}
+p(x) = 0.5 \, \mathcal{N}(x; -2, 1) + 0.5 \, \mathcal{N}(x; +2, 1)
+\end{equation*}
+
+We want to approximate this with a single Gaussian $q(x) = \mathcal{N}(x; \mu, \sigma^2)$. We need to choose $\mu$ and $\sigma^2$.
+
+\vspace{0.5em}
+
+\textbf{I-Projection: $\min_q \text{KL}(p \| q)$}
+
+This minimizes:
+\begin{equation*}
+\text{KL}(p \| q) = \mathbb{E}_{x \sim p}[\log p(x) - \log q(x)]
+\end{equation*}
+
+Since $p$ is symmetric around zero, the optimal $\mu = 0$. The optimal $\sigma^2$ will be large enough to cover both modes. Through calculus, you can show that:
+\begin{equation*}
+q^* = \mathcal{N}(0, 5)
+\end{equation*}
+
+The approximation is centered between the two modes and has large variance. It covers both modes but does not fit either one tightly. This is mode covering.
+
+\vspace{0.5em}
+
+\textbf{M-Projection: $\min_q \text{KL}(q \| p)$}
+
+This minimizes:
+\begin{equation*}
+\text{KL}(q \| p) = \mathbb{E}_{x \sim q}[\log q(x) - \log p(x)]
+\end{equation*}
+
+The optimal $q$ will concentrate on one of the modes. If initialized near $x = -2$, the optimization will converge to:
+\begin{equation*}
+q^* = \mathcal{N}(-2, 1)
+\end{equation*}
+
+The approximation fits one mode perfectly and ignores the other mode. This is mode seeking. If you initialized near $x = +2$, you would get $\mathcal{N}(+2, 1)$ instead. The solution depends on initialization because the objective is non-convex.
+
+\vspace{0.5em}
+
+\textbf{Comparison:}
+
+I-projection gives you a safe, conservative approximation that captures the overall shape but not the details. M-projection gives you a sharp, confident approximation that captures one detail perfectly but misses the big picture.
+
+Neither is right or wrong. They optimize for different objectives. If you care about not missing any possibility (risk averse decision making), use I-projection. If you care about making the most likely prediction (risk seeking decision making), use M-projection.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Why This Matters for Machine Learning}
+
+This distinction between I-projection and M-projection shows up everywhere in machine learning:
+
+\begin{itemize}
+\item \textbf{Variational autoencoders (VAEs)} use M-projection to approximate the posterior over latent variables. This is why VAEs often suffer from posterior collapse: the approximate posterior ignores the data and collapses to the prior because M-projection is mode seeking.
+
+\item \textbf{Expectation propagation (EP)} uses a mixture of both projections. It alternates between I-projections and M-projections to get the benefits of both: covering modes while maintaining tractability.
+
+\item \textbf{Generative adversarial networks (GANs)} implicitly do something related to M-projection. The discriminator pushes the generator to concentrate probability mass where the data is, which is mode seeking behavior.
+
+\item \textbf{Importance sampling} can be understood as I-projection. You have a target $p$ and a proposal $q$, and you weight samples to correct for the mismatch. If $q$ is too narrow (does not cover $p$), importance weights blow up. This is the failure mode of I-projection when $q$ is misspecified.
+\end{itemize}
+
+\vspace{2em}
+
+Take another break if needed. Projections are subtle, and it is worth sitting with them for a bit. The key idea is: there are two natural ways to approximate a distribution, and they behave very differently. Choosing the right projection for your application is a design choice, not a mathematical fact.
+
+\vspace{2em}
+
+%==========================
+\section{Maximum Entropy and Exponential Families}
+
+\subsection{The Maximum Entropy Principle}
+
+Maximum entropy is a powerful principle for constructing priors and models. It says: given some constraints on a distribution, choose the distribution that is as uniform as possible subject to those constraints.
+
+More formally, among all distributions $p$ that satisfy certain constraints (like having a specified mean or variance), choose the one that maximizes entropy:
+
+\begin{equation}
+p^* = \arg\max_{p} H(p) = \arg\max_p -\sum_x p(x) \log p(x)
+\end{equation}
+
+subject to the constraints.
+
+\vspace{1em}
+
+Why is this a good principle? Because maximum entropy distributions make the fewest assumptions beyond the given constraints. They are maximally non-committal. If all you know is the mean of a distribution, the maximum entropy distribution is the one that matches that mean but is otherwise as uniform as possible. It does not smuggle in any extra structure or bias.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Maximum entropy distributions}
+
+\vspace{0.5em}
+
+\textbf{No constraints:} If you have no information at all, the maximum entropy distribution over $n$ discrete outcomes is the uniform distribution $p(x) = 1/n$ for all $x$. This makes sense: if you know nothing, treat all outcomes as equally likely.
+
+\vspace{0.5em}
+
+\textbf{Known mean:} If you know the mean of a real valued random variable is $\mu$, the maximum entropy distribution is the exponential distribution (for non-negative values) or Laplace distribution (for real values). These distributions match the mean constraint but are otherwise as spread out as possible.
+
+\vspace{0.5em}
+
+\textbf{Known mean and variance:} If you know both the mean $\mu$ and variance $\sigma^2$ of a real valued random variable, the maximum entropy distribution is the Gaussian $\mathcal{N}(\mu, \sigma^2)$. Among all distributions with specified mean and variance, the Gaussian is the least structured (most random).
+
+\vspace{0.5em}
+
+This is one reason Gaussians are so prevalent in statistics. They are the maximum entropy distributions for specified first and second moments. If you want to model something and you only know its mean and variance, the Gaussian is the principled default choice.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Exponential Families and Sufficient Statistics}
+
+Maximum entropy distributions have a beautiful mathematical structure. They always belong to exponential families.
+
+An exponential family is a family of distributions of the form:
+
+\begin{equation}
+p(x \mid \theta) = h(x) \exp\left(\theta^\top T(x) - A(\theta)\right)
+\end{equation}
+
+where:
+\begin{itemize}
+\item $T(x)$ is the sufficient statistic (the features that capture all relevant information)
+\item $\theta$ is the natural parameter (the weights on those features)
+\item $A(\theta)$ is the log partition function (the normalization constant)
+\item $h(x)$ is the base measure (often just 1)
+\end{itemize}
+
+\vspace{1em}
+
+Many familiar distributions are exponential families:
+
+\begin{itemize}
+\item Gaussian: $T(x) = (x, x^2)$, sufficient statistics are mean and variance
+
+\item Bernoulli: $T(x) = x$, sufficient statistic is the count of ones
+
+\item Poisson: $T(x) = x$, sufficient statistic is the sum
+
+\item Categorical: $T(x) = \text{one-hot}(x)$, sufficient statistics are counts of each category
+\end{itemize}
+
+\vspace{1em}
+
+Why are exponential families special? Because they are the maximum entropy distributions subject to constraints on the sufficient statistics $T(x)$. If you want a distribution with specified expected values of $T(x)$, the maximum entropy distribution is the exponential family with those sufficient statistics.
+
+\vspace{1.5em}
+
+\subsection{Connection to Information Geometry}
+
+Exponential families have remarkable geometric properties. The natural parameters $\theta$ and the expectation parameters $\mathbb{E}[T(x)]$ form dual coordinate systems on the statistical manifold.
+
+In the natural coordinates $\theta$, the KL divergence has a simple form. In the expectation coordinates $\eta = \mathbb{E}[T(x)]$, the reverse KL divergence has a simple form. These two coordinate systems are related by the Legendre transform, which is a fundamental operation in convex analysis.
+
+\vspace{1em}
+
+The geometry has two dual connections:
+
+\begin{itemize}
+\item The $e$-connection (exponential connection) is flat in natural coordinates $\theta$
+
+\item The $m$-connection (mixture connection) is flat in expectation coordinates $\eta$
+\end{itemize}
+
+I-projection is geodesic (shortest path) in the $e$-connection. M-projection is geodesic in the $m$-connection. This is the geometric reason why the two projections give different answers: they follow different notions of "shortest path" in the curved space.
+
+\vspace{1.5em}
+
+This is getting quite abstract, so let me not push further into the dual connections here. The key takeaway is: exponential families are the natural language of information geometry. They arise from maximum entropy, they have beautiful geometric structure, and they are the foundation of many models in machine learning.
+
+\vspace{2em}
+
+%==========================
+\section{Natural Gradient and Mirror Descent in Practice}
+
+\subsection{Why Standard Gradient Descent Can Be Inefficient}
+
+When you train a neural network with standard gradient descent, you compute the gradient of the loss with respect to the parameters:
+
+\begin{equation}
+\theta \leftarrow \theta - \alpha \nabla_\theta L(\theta)
+\end{equation}
+
+This moves in the direction of steepest descent in parameter space, using the Euclidean metric. But parameter space is arbitrary! As we discussed earlier, Euclidean distance in parameter space is not intrinsic to the distributions.
+
+\vspace{1em}
+
+In curved spaces, the steepest direction depends on your metric. If you use the wrong metric, you can move very slowly because you are fighting against the geometry.
+
+Here is an intuition: imagine walking on a steep hillside. If you measure "steepest descent" using horizontal distance (Euclidean metric), you will take steps that are short in the steep direction and long in the flat direction. This is inefficient. If you measure using the intrinsic geometry of the terrain (the Riemannian metric), you will take steps that respect the local curvature and make better progress.
+
+\vspace{1.5em}
+
+\subsection{Natural Gradient Descent}
+
+Natural gradient descent uses the Fisher information metric instead of the Euclidean metric. The natural gradient is:
+
+\begin{equation}
+\tilde{\nabla}_\theta L = I(\theta)^{-1} \nabla_\theta L(\theta)
+\end{equation}
+
+where $I(\theta)$ is the Fisher information matrix. The update becomes:
+
+\begin{equation}
+\theta \leftarrow \theta - \alpha I(\theta)^{-1} \nabla_\theta L(\theta)
+\end{equation}
+
+\vspace{1em}
+
+This is like gradient descent in the curved space of probability distributions, using the intrinsic geometry. The Fisher information matrix tells you how to rescale the gradient to respect the local curvature.
+
+\vspace{1em}
+
+\textbf{Why is this better?} Natural gradient descent has several nice properties:
+
+\begin{itemize}
+\item It is invariant to reparameterization. If you change coordinates $\theta \to \phi(\theta)$, natural gradient descent in the new coordinates is equivalent to natural gradient descent in the old coordinates. This is not true for standard gradient descent.
+
+\item It often converges faster, especially when the parameter space is badly scaled (some directions are much steeper than others). The Fisher information matrix automatically rescales to equalize the curvature.
+
+\item It connects to second order methods. Natural gradient is related to Newton's method, but it uses the Fisher information (which is always positive definite) instead of the Hessian (which might not be).
+\end{itemize}
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Natural gradient for a Gaussian mean}
+
+\vspace{0.5em}
+
+Suppose you are learning the mean $\mu$ of a Gaussian distribution with known variance $\sigma^2$. The loss is the negative log likelihood:
+\begin{equation*}
+L(\mu) = \frac{1}{2\sigma^2} \sum_{i=1}^n (x_i - \mu)^2
+\end{equation*}
+
+The gradient is:
+\begin{equation*}
+\nabla_\mu L = -\frac{1}{\sigma^2} \sum_{i=1}^n (x_i - \mu)
+\end{equation*}
+
+The Fisher information for $\mu$ is $I(\mu) = n / \sigma^2$ (we computed this earlier). So the natural gradient is:
+\begin{equation*}
+\tilde{\nabla}_\mu L = I(\mu)^{-1} \nabla_\mu L = \frac{\sigma^2}{n} \cdot \left(-\frac{1}{\sigma^2} \sum_{i=1}^n (x_i - \mu)\right) = -\frac{1}{n} \sum_{i=1}^n (x_i - \mu)
+\end{equation*}
+
+The natural gradient update is:
+\begin{equation*}
+\mu \leftarrow \mu + \alpha \cdot \frac{1}{n} \sum_{i=1}^n (x_i - \mu)
+\end{equation*}
+
+With $\alpha = 1$, this is just setting $\mu = \bar{x}$ (the sample mean) in one step! Natural gradient finds the optimal solution immediately, regardless of the noise level $\sigma^2$.
+
+\vspace{0.5em}
+
+Standard gradient descent, on the other hand, would take many steps to converge, and the convergence rate would depend on $\sigma^2$. This is why natural gradient can be much more efficient.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Practical Approximations to Natural Gradient}
+
+Computing the full Fisher information matrix is expensive for large models. It requires storing and inverting a matrix of size $d \times d$ where $d$ is the number of parameters. For neural networks with millions of parameters, this is infeasible.
+
+So in practice, we use approximations:
+
+\begin{itemize}
+\item \textbf{Diagonal approximation:} Approximate $I(\theta)$ as diagonal, ignoring off diagonal terms. This gives a per parameter adaptive learning rate, similar to AdaGrad or RMSProp.
+
+\item \textbf{Block diagonal approximation:} Approximate $I(\theta)$ as block diagonal, where each block corresponds to a layer or parameter group. This is more accurate than diagonal but still tractable.
+
+\item \textbf{Kronecker factored approximation (KFAC):} Approximate the Fisher information for each layer as a Kronecker product of two smaller matrices. This exploits the structure of neural networks to make computation feasible.
+
+\item \textbf{Trust region methods:} Instead of computing the exact Fisher information, constrain the KL divergence between consecutive policies (in reinforcement learning) or distributions. This is the basis of TRPO (trust region policy optimization) and PPO (proximal policy optimization).
+\end{itemize}
+
+\vspace{1em}
+
+These approximations trade off accuracy for computational cost. Even rough approximations to natural gradient often outperform standard gradient descent because they capture some of the geometric structure.
+
+\vspace{1.5em}
+
+\subsection{Mirror Descent and Bregman Divergences}
+
+Mirror descent is a generalization of gradient descent that uses Bregman divergences instead of Euclidean distance. The idea is to choose a convex function $\phi$ (the mirror map) and minimize the Bregman divergence from the next iterate to the current iterate, subject to making progress on the loss.
+
+The update rule is:
+
+\begin{equation}
+\theta_{t+1} = \arg\min_\theta \left[\alpha \langle \nabla L(\theta_t), \theta \rangle + D_\phi(\theta \| \theta_t)\right]
+\end{equation}
+
+This has a closed form solution involving the gradient of $\phi$:
+
+\begin{equation}
+\nabla \phi(\theta_{t+1}) = \nabla \phi(\theta_t) - \alpha \nabla L(\theta_t)
+\end{equation}
+
+\vspace{1em}
+
+Different choices of $\phi$ give different algorithms:
+
+\begin{itemize}
+\item $\phi(\theta) = \frac{1}{2}\|\theta\|^2$ (squared Euclidean) gives standard gradient descent
+
+\item $\phi(\theta) = \sum_i \theta_i \log \theta_i$ (negative entropy) gives exponentiated gradient or multiplicative weights
+
+\item $\phi(\theta) = \frac{1}{2}\|\theta\|^2_{I(\theta)}$ (squared Fisher norm) gives natural gradient descent
+\end{itemize}
+
+\vspace{1em}
+
+Mirror descent is particularly useful when the parameter space has constraints (like probabilities that must sum to 1, or parameters that must be positive). The choice of $\phi$ lets you stay within the constraint set automatically, without needing to project back after each step.
+
+\vspace{1.5em}
+
+\subsection{When to Use These Methods}
+
+So when should you use natural gradient or mirror descent instead of standard gradient descent?
+
+\begin{itemize}
+\item Use natural gradient when your model is probabilistic and you care about the geometry of distributions (e.g., variational inference, policy gradient in RL, training generative models).
+
+\item Use mirror descent when your parameter space has constraints and you want the optimization to respect those constraints (e.g., simplex constraints for probabilities, positivity constraints).
+
+\item Use standard gradient descent when your model is large, the parameter space is well scaled, and you do not have the computational budget for more sophisticated methods.
+\end{itemize}
+
+\vspace{1em}
+
+In modern deep learning, most practitioners use variants of Adam, which can be interpreted as a diagonal approximation to natural gradient combined with momentum. This is a pragmatic middle ground: it captures some geometric structure (adaptive per parameter learning rates) without the full computational cost of computing the Fisher information matrix.
+
+\vspace{2em}
+
+%==========================
+
+\begin{geometrylens}
+\textbf{Geodesics and Parallel Transport}
+
+\vspace{0.5em}
+
+In Riemannian geometry, a geodesic is the shortest path between two points on a curved surface. On a sphere, geodesics are great circles (like the equator or lines of longitude). In the space of probability distributions with the Fisher Rao metric, geodesics are the most efficient ways to morph one distribution into another.
+
+\vspace{0.5em}
+
+Natural gradient descent follows geodesics in the statistical manifold. Each step moves along the geodesic in the direction that decreases loss. This is why it can be more efficient than standard gradient descent, which follows straight lines in parameter space that might not be geodesics in distribution space.
+
+\vspace{0.5em}
+
+Parallel transport is another geometric concept: how do you move a vector along a curve while keeping it "parallel" to itself? On a curved surface, parallel transport can rotate vectors. This rotation measures the curvature of the space.
+
+\vspace{0.5em}
+
+In information geometry, parallel transport of gradients gives you a notion of "consistent direction" as you move through parameter space. This is related to momentum methods in optimization: momentum tries to maintain a consistent direction of motion, which is a crude approximation to parallel transport.
+
+\vspace{0.5em}
+
+These concepts (geodesics, parallel transport, curvature) are the foundation of differential geometry. Information geometry applies these tools to the space of probability distributions. It is a beautiful example of how abstract mathematics connects to practical algorithms.
+\end{geometrylens}
+
+\vspace{2em}
+
+%==========================
+
+\begin{pausebox}
+Let me check in with you. This chapter covered a lot of ground. Can you explain what KL divergence measures and why it is asymmetric? Do you understand the difference between forward KL (mode covering, I-projection) and reverse KL (mode seeking, M-projection)? Can you articulate what the Fisher information matrix represents and why it defines a Riemannian metric?
+
+\vspace{0.5em}
+
+Can you explain why natural gradient descent uses the Fisher information instead of the Euclidean metric? Do you see why exponential families are special (they are maximum entropy distributions)? Can you explain when you would use I-projection versus M-projection in a practical application?
+
+\vspace{0.5em}
+
+If any of these feel fuzzy, go back and reread the relevant section. The geometry of probability is subtle, and it is normal to need multiple passes to internalize it. The key intuitions are: distributions live in a curved space, KL divergence is the fundamental "distance," and different directions of measurement lead to different optimization objectives. These ideas will recur throughout the book, especially when we discuss variational inference, diffusion models, and evaluation.
+\end{pausebox}
+
+\vspace{1em}
+
+This chapter introduced the geometry of probability distributions. We learned about KL divergence as the fundamental asymmetric distance between distributions, and saw how forward KL and reverse KL lead to very different optimization behavior (mode covering versus mode seeking). We explored the Fisher information metric as the intrinsic Riemannian metric on the statistical manifold, and saw how it defines distances that are invariant to reparameterization. We studied I-projection and M-projection as two dual ways to approximate a target distribution, corresponding to Bayesian inference and variational inference respectively. We saw how maximum entropy distributions are exponential families, which have special geometric structure. Finally, we discussed practical algorithms like natural gradient descent and mirror descent that exploit this geometric structure for more efficient optimization.
+
+The geometric perspective transforms how we think about learning and inference. When you minimize a loss function, you are moving through a curved space of distributions. The path you take and the metric you use determine how efficiently you reach your goal. Understanding this geometry is essential for designing better algorithms and diagnosing why existing algorithms succeed or fail.
+
+In the next chapter, we will explore high dimensional representations: embeddings, tokenization, and the geometry of vector spaces. We will see how the information theoretic and geometric ideas from these first three chapters apply to the practical problem of representing and searching through large spaces of data.

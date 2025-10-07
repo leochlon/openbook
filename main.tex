@@ -1,0 +1,229 @@
+\documentclass[11pt,oneside]{book}
+
+%---- Layout & fonts (BEFORE polyglossia)
+\usepackage[margin=1.1in]{geometry}
+\usepackage{fontspec}  % Add this explicitly before polyglossia
+\usepackage{microtype}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5\baselineskip}
+
+%---- Math & tables
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+
+%---- Figures & colors
+\usepackage{graphicx,xcolor}
+
+%---- Custom environments
+\usepackage[most]{tcolorbox}
+
+% Key Insight Box
+\newtcolorbox{keyinsight}{
+  colback=blue!5!white,
+  colframe=blue!75!black,
+  title=Key Insight,
+  fonttitle=\bfseries,
+  breakable
+}
+
+% Example Box
+\newtcolorbox{examplebox}{
+  colback=green!5!white,
+  colframe=green!50!black,
+  title=Worked Example,
+  fonttitle=\bfseries,
+  breakable
+}
+
+% Pause Box
+\newtcolorbox{pausebox}{
+  colback=orange!5!white,
+  colframe=orange!75!black,
+  fonttitle=\bfseries,
+  breakable
+}
+
+% Geometry Lens environment
+\newenvironment{geometrylens}{%
+  \begin{quote}\small\noindent\textbf{Geometry Lens.}\ 
+}{%
+  \end{quote}
+}
+
+%---- Polyglossia for Arabic (LOAD LATE, after tcolorbox)
+\usepackage{polyglossia}
+\setmainlanguage{english}
+\setotherlanguage{arabic}
+\newfontfamily\arabicfont[Script=Arabic]{Amiri}
+
+%---- Hyperlinks & refs (LOAD LAST)
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink]{cleveref}
+
+%---- Utilities
+\usepackage{etoolbox}
+
+%---- Helper for missing files
+\newcommand{\maybeinput}[1]{%
+  \IfFileExists{#1.tex}{%
+    \input{#1}%
+  }{%
+    \typeout{*** Warning: Missing file #1.tex ***}%
+  }%
+}
+
+%==========================
+% Front matter
+%==========================
+\title{Information Geometry for GenAI: From Bayesian Foundations to Production Systems}
+\author{Hassana Labs}
+
+\begin{document}
+
+\maketitle
+% Dedication page
+\input{frontmatter/dedication}
+
+\tableofcontents
+
+% Contributors page (after TOC, before main content)
+\input{frontmatter/contributors}
+
+
+\newpage
+\thispagestyle{empty} % removes page number
+\vspace*{\fill} % pushes content to vertical center
+\begin{center}
+{\Huge
+\begin{Arabic}
+بِسْمِ ٱللهِ ٱلرَّحْمَٰنِ ٱلرَّحِيْمِ
+\end{Arabic}
+}
+\end{center}
+\begin{center}
+In loving memory of my Grandmother, Teta, Hassana. 
+\end{center}
+\vspace*{\fill} % pushes content to vertical center
+\newpage
+
+
+\tableofcontents
+
+\mainmatter
+
+%======================================================
+% PART I — Foundations: Information, Bayes, and Geometry
+%======================================================
+\part{Foundations: Information, Bayes, and Geometry}
+
+% Chapter 1: Information as Compression
+% - From Shannon to MDL: why codelength is loss
+% - Cross-entropy, perplexity, and log-loss as expected codelength
+% - Rate--distortion and generative modeling as source coding
+% - Bits, budgets, and decision quality
+\include{chapters/part1/ch01_information_compression}
+
+% Chapter 2: Bayesian Predictive Inference
+% - Posterior & posterior predictive; decisions under loss
+% - De Finetti & exchangeability; why order shouldn't matter (in theory)
+% - Empirical Bayes & approximate Bayes in deep nets
+% - Selective prediction and decision risk
+\maybeinput{chapters/part1/ch02_bayesian_predictive}
+
+% Chapter 3: The Geometry of Probability
+% - KL, JS, and Bregman geometry
+% - I-/M-projection (maximum entropy & exponential tilting)
+% - Fisher--Rao metric, dual connections
+% - Natural gradient & mirror descent in practice
+\maybeinput{chapters/part1/ch03_geometry_probability}
+
+% Chapter 4: High-Dimensional Representations
+% - Concentration, random projections, and typicality
+% - Tokenization & embedding geometry (anisotropy, whitening)
+% - Spherical codes & cosine geometry for similarity search
+% - Information in k-NN/ANN indices (recall ↔ info)
+\maybeinput{chapters/part1/ch04_highdim_representations}
+
+%======================================================
+% PART II — Models Through the Information-Geometric Lens
+%======================================================
+\part{Models Through the Information-Geometric Lens}
+
+% Chapter 5: Transformers as Conditional Compressors
+% - Autoregression as incremental codelength minimization
+% - Attention as adaptive kernel; softmax geometry
+% - Pretraining objectives and evaluation (NLL, PPL)
+% - Sampling schemes and their implicit risks
+\maybeinput{chapters/part2/ch05_transformers_compressors}
+
+% Chapter 6: Order, Position, and Exchangeability Gaps
+% - Why "Bayesian in expectation, not in realization"
+% - Positional Jensen penalty and mixture averaging
+% - Quantified martingale violations: O(log n) scaling
+% - Architectural closure via permutation mixtures
+\maybeinput{chapters/part2/ch06_order_exchangeability}
+
+% Chapter 7: Diffusion and Score-Based Models
+% - Score matching, SDE/SDE reverse, and Fokker--Planck
+% - ELBO vs DSM objectives as information tradeoffs
+% - Guidance, conditioning, and classifier-free tricks
+% - Geometry of denoising fields
+\maybeinput{chapters/part2/ch07_diffusion_score}
+
+% Chapter 8: Variational Inference, Bits-Back, and Flows
+% - VAEs, ELBO, and bits-back coding
+% - Normalizing flows and change-of-variables geometry
+% - Amortization gaps and calibration
+% - Bridging VAEs/flows with language modeling intuitions
+\maybeinput{chapters/part2/ch08_variational_flows}
+
+%======================================================
+% PART III — Learning & Generalization: Scaling, Data, and Optimization
+%======================================================
+\part{Learning \& Generalization: Scaling, Data, and Optimization}
+
+\maybeinput{chapters/part3/ch09_pacbayes_mdl}
+\maybeinput{chapters/part3/ch10_scaling_laws}
+\maybeinput{chapters/part3/ch11_optimization_geometry}
+
+%======================================================
+% PART IV — Evaluation, Calibration, and Information Budgeting
+%======================================================
+\part{Evaluation, Calibration, and Information Budgeting}
+
+\maybeinput{chapters/part4/ch12_uncertainty}
+\maybeinput{chapters/part4/ch13_calibration_selective}
+\maybeinput{chapters/part4/ch14_information_budgeting}
+\maybeinput{chapters/part4/ch15_evaluation_theory}
+
+%======================================================
+% PART V — Systems: Retrieval, Tool Use, and Structured Generation
+%======================================================
+\part{Systems: Retrieval, Tool Use, and Structured Generation}
+
+\maybeinput{chapters/part5/ch16_retrieval_acquisition}
+\maybeinput{chapters/part5/ch17_tool_use_programs}
+\maybeinput{chapters/part5/ch18_structured_outputs}
+\maybeinput{chapters/part5/ch19_ethics_safety}
+
+%======================================================
+% PART VI — Case Studies, Labs, and Patterns
+%======================================================
+\part{Case Studies, Labs, and Patterns}
+
+\maybeinput{chapters/part6/ch20_selfconsistency_audits}
+\maybeinput{chapters/part6/ch21_dose_response}
+\maybeinput{chapters/part6/ch22_audit_playbook}
+\maybeinput{chapters/part6/ch23_data_curation}
+\maybeinput{chapters/part6/ch24_putting_together}
+
+%======================================================
+% Back Matter
+%======================================================
+\backmatter
+
+\maybeinput{backmatter/appendices}
+\maybeinput{backmatter/bibliography}
+\maybeinput{backmatter/index}
+
+\end{document}

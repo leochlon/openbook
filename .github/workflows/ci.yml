@@ -1,0 +1,69 @@
+name: LaTeX Book CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  MAX_TOTAL_PAGES: 500
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        lfs: true
+    
+    - name: Install TeX Live
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          texlive-xetex \
+          texlive-latex-extra \
+          texlive-fonts-extra \
+          texlive-bibtex-extra \
+          biber \
+          poppler-utils
+    
+    - name: Install Amiri font
+      run: |
+        sudo apt-get install -y fonts-hosny-amiri
+    
+    - name: Build PDF with XeLaTeX
+      run: |
+        xelatex -interaction=nonstopmode -halt-on-error main.tex || exit 1
+        biber main || true
+        xelatex -interaction=nonstopmode -halt-on-error main.tex || exit 1
+        xelatex -interaction=nonstopmode -halt-on-error main.tex || exit 1
+        
+        if [ ! -f main.pdf ]; then
+          echo "::error::PDF compilation failed"
+          exit 1
+        fi
+        
+        echo "✅ PDF built successfully"
+    
+    - name: Check total page count
+      run: |
+        PAGES=$(pdfinfo main.pdf | grep "^Pages:" | awk '{print $2}')
+        echo "Total pages: $PAGES"
+        
+        if [ "$PAGES" -gt $MAX_TOTAL_PAGES ]; then
+          echo "::error::Page count ($PAGES) exceeds limit ($MAX_TOTAL_PAGES)"
+          exit 1
+        fi
+        
+        echo "✅ Total page count OK: $PAGES/$MAX_TOTAL_PAGES"
+    
+    - name: Upload PDF artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: book-pdf
+        path: main.pdf
+        retention-days: 30

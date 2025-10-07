@@ -1,0 +1,30 @@
+# LaTeX artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
+
+# PDF output
+main.pdf
+
+# Editor
+*.swp
+*.swo
+*~
+.DS_Store
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc

@@ -1,0 +1,897 @@
+%==========================
+% Chapter 4: High-Dimensional Representations
+%==========================
+
+\chapter{High-Dimensional Representations}
+
+\begin{keyinsight}
+High dimensional spaces are strange. Random vectors are nearly orthogonal. Most of the volume of a sphere is concentrated near its surface. Distances become uniform. These counterintuitive properties are not bugs, they are features. Understanding high dimensional geometry is essential for working with embeddings, vectors, and similarity search in modern AI systems.
+\end{keyinsight}
+
+\vspace{1.5em}
+
+In the previous chapters, we built foundations in information theory, Bayesian inference, and geometric thinking. Now we turn to a practical question: how do we represent data in high dimensional spaces?
+
+Modern AI systems work with embeddings. Text becomes vectors. Images become vectors. Everything becomes vectors living in spaces with hundreds or thousands of dimensions. These vectors encode semantic meaning: similar concepts have similar vectors, measured by distances or angles.
+
+But high dimensional spaces behave very differently from the two or three dimensional spaces we experience in daily life. Intuitions break down. Distances become less meaningful. Random vectors are surprisingly close to orthogonal. The geometry has unusual properties that you must understand to work effectively with these representations.
+
+This chapter teaches you the essential phenomena of high dimensional geometry. We start with concentration of measure: how probability mass concentrates in surprising ways as dimensions increase. Then we explore random projections and the Johnson Lindenstrauss lemma, which tells you that you can compress high dimensional data with minimal distortion. We will dive into tokenization and embedding geometry, understanding why embeddings often suffer from anisotropy and how whitening can fix it. Finally, we will look at spherical codes and similarity search, seeing how information theory connects to the practical problem of finding nearest neighbors.
+
+Throughout, we will see concrete examples and practical techniques. High dimensional geometry is not just abstract mathematics. It determines how well your retrieval system works, how efficiently you can search large databases, and how faithfully your embeddings capture semantic relationships.
+
+\vspace{2em}
+
+%==========================
+\section{Concentration of Measure: The Geometry of High Dimensions}
+
+\subsection{The Curse and Blessing of Dimensionality}
+
+You have probably heard of the "curse of dimensionality." As dimensions increase, volumes grow exponentially. The number of data points you need to fill a space grows exponentially. Distances become less discriminative. Nearest neighbor search becomes harder.
+
+This is all true, but there is another side. High dimensions also give you blessings. Random vectors are nearly orthogonal, which means you can pack many almost independent directions into a space. Concentration phenomena mean that probability mass concentrates tightly, which makes some calculations easier. Random projections preserve distances, which means you can compress without losing much information.
+
+\vspace{1em}
+
+Understanding both the curse and the blessing is essential. High dimensions are different, but different does not mean bad. You need to work with the geometry, not against it.
+
+\vspace{1.5em}
+
+\subsection{Most Volume Is Near the Surface}
+
+Let me start with a striking fact. Consider a ball of radius $r$ in $d$ dimensions. Most of its volume is concentrated in a thin shell near the surface. The center is nearly empty.
+
+To see this, compare the volume of a ball of radius $r$ to the volume of a ball of radius $(1 - \epsilon)r$ for small $\epsilon$:
+
+\begin{equation}
+\frac{\text{Volume}(r(1-\epsilon))}{\text{Volume}(r)} = (1-\epsilon)^d
+\end{equation}
+
+For large $d$, this ratio goes to zero rapidly. Even for $\epsilon = 0.1$ (removing just the outer 10\% of the radius), if $d = 100$ then $(0.9)^{100} \approx 0.000027$. Almost all the volume is in the outer 10\% shell.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Where is the volume in high dimensions?}
+
+\vspace{0.5em}
+
+Consider a ball of radius 1 in $d$ dimensions. What fraction of the volume is contained within radius $0.99$?
+
+\vspace{0.5em}
+
+The ratio is $(0.99)^d$. Let me compute this for different dimensions:
+
+\begin{itemize}
+\item $d = 2$: $(0.99)^2 = 0.98$. About 98\% of the area is within radius 0.99. The center contains significant mass.
+
+\item $d = 10$: $(0.99)^{10} \approx 0.904$. About 90\% of the volume is within radius 0.99. Still reasonable.
+
+\item $d = 100$: $(0.99)^{100} \approx 0.366$. Only 37\% of the volume is within radius 0.99. Most of the volume is in the outer 1\% shell.
+
+\item $d = 1000$: $(0.99)^{1000} \approx 0.00004$. Essentially all the volume is concentrated near the surface. The interior is empty.
+\end{itemize}
+
+\vspace{0.5em}
+
+This is deeply counterintuitive. In three dimensions, we think of balls as solid objects with mass throughout. But in high dimensions, balls are hollow shells. The center is empty. All the probability mass lives near the surface.
+
+\vspace{0.5em}
+
+\textbf{Practical implication:} If you sample uniformly from a high dimensional ball, your samples will almost always be near the surface, not near the center. If you normalize vectors to unit length (project onto the sphere), you are not losing much information because the mass was already near the sphere anyway.
+\end{examplebox}
+
+\vspace{1.5em}
+
+Take a breath here. Let this sink in. High dimensional balls are hollow. This is the first strange property of high dimensions.
+
+\vspace{1.5em}
+
+\subsection{Random Vectors Are Nearly Orthogonal}
+
+Here is another surprising fact. If you sample two random vectors uniformly from a high dimensional sphere, they are almost always nearly orthogonal. The angle between them is close to 90 degrees.
+
+Why? Because the dot product of two random unit vectors has expected value zero and variance that shrinks as $1/d$. So as $d \to \infty$, the dot product concentrates near zero, which means the angle concentrates near 90 degrees.
+
+\vspace{1em}
+
+More precisely, if $u$ and $v$ are independent random unit vectors in $d$ dimensions, then:
+
+\begin{equation}
+\mathbb{E}[u^\top v] = 0 \quad \text{and} \quad \text{Var}(u^\top v) = \frac{1}{d}
+\end{equation}
+
+By concentration inequalities (like Chebyshev or Hoeffding), the dot product is within $O(1/\sqrt{d})$ of zero with high probability. For $d = 1000$, random vectors are nearly orthogonal to within 3\%.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Orthogonality in high dimensions}
+
+\vspace{0.5em}
+
+Generate two random unit vectors $u$ and $v$ in $d$ dimensions (sample coordinates from a standard Gaussian and normalize). What is the typical value of $u^\top v$?
+
+\vspace{0.5em}
+
+I can compute the expected squared dot product:
+\begin{equation*}
+\mathbb{E}[(u^\top v)^2] = \mathbb{E}\left[\left(\sum_{i=1}^d u_i v_i\right)^2\right] = \sum_{i=1}^d \mathbb{E}[u_i^2 v_i^2] = \frac{1}{d}
+\end{equation*}
+
+So the typical magnitude is $|u^\top v| \approx 1/\sqrt{d}$.
+
+\vspace{0.5em}
+
+For different dimensions:
+
+\begin{itemize}
+\item $d = 2$: Typical $|u^\top v| \approx 0.7$. Random vectors can have substantial alignment.
+
+\item $d = 10$: Typical $|u^\top v| \approx 0.316$. They are getting more orthogonal.
+
+\item $d = 100$: Typical $|u^\top v| \approx 0.1$. Nearly orthogonal.
+
+\item $d = 1000$: Typical $|u^\top v| \approx 0.03$. Essentially orthogonal.
+\end{itemize}
+
+\vspace{0.5em}
+
+In high dimensions, random vectors are nearly orthogonal. This means you can pack many "independent" directions into a high dimensional space. Each new random vector is almost orthogonal to all previous ones, so you do not get redundancy.
+
+\vspace{0.5em}
+
+\textbf{Practical implication:} When you create random projections or use random features, you are effectively creating nearly orthogonal directions. This is why random projections work well for dimensionality reduction.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Distances Become Uniform}
+
+Here is the third strange property. In high dimensions, distances between points become more uniform. The ratio of the farthest distance to the nearest distance approaches 1 as $d \to \infty$.
+
+Suppose you have $n$ points sampled from a distribution in $d$ dimensions. Let $D_{\max}$ be the distance to the farthest point and $D_{\min}$ be the distance to the nearest point. Then:
+
+\begin{equation}
+\frac{D_{\max} - D_{\min}}{D_{\min}} \to 0 \text{ as } d \to \infty
+\end{equation}
+
+This is called the concentration of distances. All points become equidistant from a query point. Nearest neighbors and farthest neighbors become indistinguishable.
+
+\vspace{1em}
+
+This is a serious problem for nearest neighbor search. If all distances are similar, how do you find the nearest neighbor? The signal (difference between near and far) becomes small relative to the noise (fluctuations in distance).
+
+However, this phenomenon assumes uniform or isotropic distributions. Real data often has structure: it lives on lower dimensional manifolds embedded in the high dimensional space. If data has structure, distances do not become completely uniform, and nearest neighbor search can still work.
+
+\vspace{1.5em}
+
+\subsection{Typicality and the Thin Shell}
+
+The concentration of measure has a beautiful consequence called typicality. Most samples from a distribution are concentrated in a "typical set" where the probability is neither too high nor too low. The typical set has high probability mass but small volume.
+
+For example, consider a Gaussian distribution in $d$ dimensions. Most samples have norm close to $\sqrt{d}$. They concentrate in a thin shell around radius $\sqrt{d}$. Samples very close to the origin (norm much less than $\sqrt{d}$) or very far from the origin (norm much greater than $\sqrt{d}$) are exponentially rare.
+
+\vspace{1em}
+
+This connects back to information theory. The typical set is where $\log p(x) \approx -H$, where $H$ is the entropy. These are the samples with code length close to the entropy. Samples outside the typical set have either much shorter code length (rare) or much longer code length (also rare).
+
+\vspace{1em}
+
+Typicality is fundamental to compression and coding. When you design a code, you allocate bits to the typical set. Samples outside the typical set can be coded less efficiently because they are rare anyway.
+
+\vspace{2em}
+
+Let me give you a concrete example to make this real.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Typicality of Gaussian samples}
+
+\vspace{0.5em}
+
+Sample $x$ from a standard Gaussian $\mathcal{N}(0, I_d)$ in $d$ dimensions. What is the typical value of $\|x\|^2$?
+
+\vspace{0.5em}
+
+Each coordinate $x_i \sim \mathcal{N}(0, 1)$ is independent. So $\|x\|^2 = \sum_{i=1}^d x_i^2$ is the sum of $d$ independent $\chi^2$ random variables with one degree of freedom each. By the law of large numbers:
+
+\begin{equation*}
+\mathbb{E}[\|x\|^2] = d \quad \text{and} \quad \text{Var}(\|x\|^2) = 2d
+\end{equation*}
+
+So the typical squared norm is $d$, giving a typical norm of $\sqrt{d}$. The standard deviation of $\|x\|^2$ is $\sqrt{2d}$, which means the standard deviation of $\|x\|$ is approximately $\sqrt{2d}/(2\sqrt{d}) = 1/\sqrt{2}$ (by a delta method approximation).
+
+\vspace{0.5em}
+
+The relative standard deviation in the norm is:
+\begin{equation*}
+\frac{\text{std}(\|x\|)}{\mathbb{E}[\|x\|]} \approx \frac{1/\sqrt{2}}{\sqrt{d}} = \frac{1}{\sqrt{2d}} \to 0 \text{ as } d \to \infty
+\end{equation*}
+
+\vspace{0.5em}
+
+For different dimensions:
+
+\begin{itemize}
+\item $d = 10$: Typical norm $\sqrt{10} \approx 3.16$, relative std about $1/\sqrt{20} \approx 22\%$
+
+\item $d = 100$: Typical norm $\sqrt{100} = 10$, relative std about $1/\sqrt{200} \approx 7\%$
+
+\item $d = 1000$: Typical norm $\sqrt{1000} \approx 31.6$, relative std about $1/\sqrt{2000} \approx 2\%$
+\end{itemize}
+
+\vspace{0.5em}
+
+\textbf{Conclusion:} High dimensional Gaussian samples concentrate in a thin shell around radius $\sqrt{d}$. They are not uniformly distributed throughout the ball. They live on a shell, and the shell gets relatively thinner as $d$ increases.
+
+\vspace{0.5em}
+
+\textbf{Practical implication:} When you sample from a Gaussian in high dimensions, you can approximate it as sampling uniformly from a sphere of radius $\sqrt{d}$. The radial fluctuations are small relative to the radius.
+\end{examplebox}
+
+\vspace{1.5em}
+
+Take another break. These concentration phenomena are the foundation of high dimensional probability. Volume near surface, orthogonality of random vectors, uniformity of distances, and typicality. These are not edge cases. They are the typical behavior in high dimensions.
+
+\vspace{2em}
+
+%==========================
+\section{Random Projections and the Johnson Lindenstrauss Lemma}
+
+\subsection{Can You Compress Without Losing Information?}
+
+Here is a practical question. You have data in a very high dimensional space, say $d = 10{,}000$ dimensions. Can you project it down to a much lower dimensional space, say $k = 100$ dimensions, without losing much information?
+
+Intuitively, this seems impossible. You are throwing away 99\% of the dimensions. How could distances and relationships be preserved?
+
+But here is the magic: if you have a finite set of points, you can compress them with minimal distortion using random projections. This is the content of the Johnson Lindenstrauss lemma.
+
+\vspace{1.5em}
+
+\subsection{The Johnson Lindenstrauss Lemma}
+
+The Johnson Lindenstrauss (JL) lemma says: for any set of $n$ points in high dimensional space, there exists a projection to $k = O(\log n / \epsilon^2)$ dimensions such that all pairwise distances are preserved up to a factor of $(1 \pm \epsilon)$.
+
+More precisely, there exists a linear map $f: \mathbb{R}^d \to \mathbb{R}^k$ such that for all pairs of points $x, y$:
+
+\begin{equation}
+(1-\epsilon)\|x - y\|^2 \leq \|f(x) - f(y)\|^2 \leq (1+\epsilon)\|x - y\|^2
+\end{equation}
+
+The remarkable part is that $k$ depends only on $n$ (the number of points) and $\epsilon$ (the desired accuracy), not on $d$ (the original dimension). Even if $d = 1{,}000{,}000$, you can project down to $k = O(\log n)$ and preserve distances.
+
+\vspace{1em}
+
+Moreover, you can use a random projection. You do not need to carefully design $f$. Just sample a random matrix with appropriate properties (like Gaussian entries scaled by $1/\sqrt{k}$), and with high probability, it will preserve distances.
+
+\vspace{1.5em}
+
+\subsection{Why Does This Work? A Proof Sketch}
+
+The intuition behind the Johnson Lindenstrauss lemma comes from concentration of measure. Let me sketch why random projections preserve distances.
+
+\vspace{1em}
+
+Consider projecting a single vector $x$ with $\|x\| = 1$ onto a random $k$ dimensional subspace using a random matrix $R$ with i.i.d. Gaussian entries $\mathcal{N}(0, 1/k)$. The projected length squared is:
+
+\begin{equation}
+\|Rx\|^2 = \sum_{i=1}^k (R_i^\top x)^2
+\end{equation}
+
+Each term $R_i^\top x = \sum_{j=1}^d R_{ij} x_j$ is a weighted sum of Gaussian random variables. Since $\sum_j x_j^2 = 1$, we have:
+
+\begin{equation}
+\mathbb{E}[(R_i^\top x)^2] = \sum_{j=1}^d x_j^2 \mathbb{E}[R_{ij}^2] = \sum_{j=1}^d x_j^2 \cdot \frac{1}{k} = \frac{1}{k}
+\end{equation}
+
+So $\mathbb{E}[\|Rx\|^2] = k \cdot (1/k) = 1$. The projection preserves length in expectation!
+
+\vspace{1em}
+
+The variance of $\|Rx\|^2$ is $O(1/k)$ by standard concentration results. By Chebyshev's inequality or Chernoff bounds, for $k = \Omega(1/\epsilon^2)$, we have:
+
+\begin{equation}
+P(|\|Rx\|^2 - 1| > \epsilon) < \delta
+\end{equation}
+
+for some small failure probability $\delta$.
+
+\vspace{1em}
+
+Now we need to preserve all $\binom{n}{2}$ pairwise distances simultaneously. By linearity, if the projection preserves lengths of all vectors, it preserves all distances (since $\|x - y\|^2 = \|x\|^2 + \|y\|^2 - 2x^\top y$). Using a union bound over all pairs:
+
+\begin{equation}
+k = O\left(\frac{\log n}{\epsilon^2}\right)
+\end{equation}
+
+suffices to ensure all distances are preserved with high probability. The $\log n$ factor comes from the union bound: we need the failure probability per pair to be $O(1/n^2)$, which requires $\log(1/\delta) = O(\log n)$ bits of precision.
+
+\vspace{1em}
+
+This is why the dimension depends only logarithmically on the number of points, not on the original dimension. Random projections exploit the concentration of measure in high dimensions.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{How many dimensions do you need?}
+
+\vspace{0.5em}
+
+Suppose you have $n = 1{,}000{,}000$ points (one million) and you want to preserve distances up to $\epsilon = 0.1$ (10\% distortion). How many dimensions $k$ do you need?
+
+\vspace{0.5em}
+
+The Johnson Lindenstrauss bound is:
+\begin{equation*}
+k = O\left(\frac{\log n}{\epsilon^2}\right) = O\left(\frac{\log(10^6)}{0.01}\right) = O\left(\frac{13.8}{0.01}\right) \approx 1380
+\end{equation*}
+
+So you need about $k \approx 1400$ dimensions. If the original space has $d = 100{,}000$ dimensions, you have compressed by a factor of 70 while preserving distances to within 10\%.
+
+\vspace{0.5em}
+
+If you relax the accuracy to $\epsilon = 0.2$ (20\% distortion):
+\begin{equation*}
+k = O\left(\frac{\log(10^6)}{0.04}\right) \approx 345
+\end{equation*}
+
+Now you need only about 350 dimensions. You have compressed by a factor of 290.
+
+\vspace{0.5em}
+
+\textbf{Key insight:} The number of dimensions needed depends logarithmically on the number of points. Even for a billion points, $\log(10^9) \approx 20.7$, so you only need about 2000 dimensions to preserve distances. This is why random projections are so powerful for high dimensional data.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Practical Applications of Random Projections}
+
+Random projections are widely used in practice for dimensionality reduction:
+
+\begin{itemize}
+\item \textbf{Fast nearest neighbor search:} Project high dimensional embeddings to lower dimensions, then search in the lower dimensional space. This is much faster, and distances are approximately preserved.
+
+\item \textbf{Sketching and streaming:} In large scale data processing, you cannot store all data in memory. Random projections let you compute approximate statistics (like distances or inner products) using sketches that are much smaller than the original data.
+
+\item \textbf{Privacy preserving computation:} Random projections obscure the original data while preserving distances. This provides a form of differential privacy for geometric queries.
+
+\item \textbf{Compressed sensing:} If a signal is sparse in some basis, you can recover it from far fewer measurements than the original dimension using random projections. This is the foundation of compressed sensing.
+\end{itemize}
+
+\vspace{1em}
+
+The key advantage is that random projections are oblivious: you do not need to know anything about the data distribution. Just apply a random matrix, and distances are preserved with high probability. This makes them extremely practical.
+
+\vspace{2em}
+
+%==========================
+\section{Tokenization and Embedding Geometry}
+
+\subsection{From Discrete Symbols to Continuous Vectors}
+
+Modern language models work with embeddings. Each token (word, subword, character) is mapped to a vector in a high dimensional space, typically with $d = 768$ or $d = 1024$ or even higher dimensions.
+
+This embedding space is where the model does its computation. Attention compares vectors. Feedforward layers transform vectors. The entire model operates in this continuous vector space, even though the input and output are discrete tokens.
+
+\vspace{1em}
+
+The geometry of this embedding space matters enormously. If semantically similar tokens have similar embeddings, the model can generalize. If the geometry is pathological (all embeddings point in the same direction, or the space is anisotropic), the model will struggle.
+
+\vspace{1.5em}
+
+\subsection{Tokenization: Breaking Text into Pieces}
+
+Before embedding, you need to tokenize: break text into discrete units. There are several approaches:
+
+\begin{itemize}
+\item \textbf{Word level:} Each word is a token. Simple, but the vocabulary is huge (hundreds of thousands of words), and you cannot handle rare words or misspellings.
+
+\item \textbf{Character level:} Each character is a token. Small vocabulary (about 100 for English), but sequences are very long (characters to words is a factor of 5 or more). The model needs to learn how to combine characters into words.
+
+\item \textbf{Subword level (BPE, WordPiece, SentencePiece):} Break words into subwords using a learned vocabulary. Common words are single tokens. Rare words are broken into pieces. This balances vocabulary size and sequence length.
+\end{itemize}
+
+\vspace{1em}
+
+Subword tokenization became the dominant approach because it hits a Goldilocks zone:
+
+\begin{itemize}
+\item \textbf{Vocabulary size:} Typically $V = 30{,}000$ to $100{,}000$ tokens, which is large enough to cover most common words as single tokens but small enough to be computationally tractable.
+
+\item \textbf{Handles rare words by composition:} Rare words and names are broken into subword pieces that may appear in other contexts. The model can learn representations for these pieces and compose them.
+
+\item \textbf{Language agnostic:} BPE works for any language or even for non-linguistic data like code or DNA sequences. You do not need language specific rules.
+
+\item \textbf{Deterministic and reversible:} You can always reconstruct the original text from the tokens. Tokenization is a lossless compression in the information theoretic sense.
+\end{itemize}
+
+\vspace{1em}
+
+The tokenization is learned from data using a greedy algorithm: start with characters, then iteratively merge the most frequent pairs of tokens to create new tokens. This creates a vocabulary that efficiently compresses the training corpus.
+
+\vspace{1.5em}
+
+\subsection{Anisotropy: When Embeddings Are Not Evenly Distributed}
+
+Here is a problem that shows up in many trained embedding spaces: anisotropy. The embeddings are not uniformly distributed on the sphere. They concentrate in a narrow cone, pointing mostly in the same direction.
+
+To quantify anisotropy, compute the average embedding vector:
+
+\begin{equation}
+\mu = \frac{1}{V} \sum_{i=1}^V e_i
+\end{equation}
+
+where $e_i$ is the embedding for token $i$ and $V$ is the vocabulary size. If embeddings are isotropic (evenly distributed), $\mu$ should be close to zero. But in practice, $\|\mu\|$ is often large, meaning all embeddings have a significant component pointing in the direction of $\mu$.
+
+\vspace{1em}
+
+Why is this bad? Because the cosine similarity between two embeddings is:
+
+\begin{equation}
+\text{similarity}(e_i, e_j) = \frac{e_i^\top e_j}{\|e_i\| \|e_j\|}
+\end{equation}
+
+If both embeddings have a large component pointing in the direction of $\mu$, their dot product is dominated by this common component. The cosine similarity is always high, even for unrelated tokens. This makes similarity search less discriminative.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Anisotropy in word embeddings}
+
+\vspace{0.5em}
+
+Suppose embeddings are unit vectors, but they all have a large component in the direction of some unit vector $\mu$. Two embeddings $e_i$ and $e_j$ might look like:
+
+\begin{equation*}
+e_i = 0.8 \mu + 0.6 u_i, \quad e_j = 0.8 \mu + 0.6 u_j
+\end{equation*}
+
+where $\mu$ is a unit vector, and $u_i$, $u_j$ are unit vectors orthogonal to $\mu$ and to each other. Note that $\|e_i\|^2 = 0.8^2 + 0.6^2 = 1$, so the embeddings are normalized.
+
+\vspace{0.5em}
+
+The dot product is:
+\begin{equation*}
+e_i^\top e_j = (0.8 \mu + 0.6 u_i)^\top (0.8 \mu + 0.6 u_j) = 0.64 + 0 = 0.64
+\end{equation*}
+
+The cosine similarity is 0.64 (since embeddings are already normalized). This is high similarity, even though $u_i$ and $u_j$ are orthogonal (representing unrelated semantic content).
+
+\vspace{0.5em}
+
+All pairs of embeddings have similarity around 0.64 because of the common component along $\mu$. The discriminative part (the $u_i$ and $u_j$ components) contributes much less to the similarity. This makes the embedding space less useful for retrieval: everything looks similar to everything else.
+
+\vspace{0.5em}
+
+\textbf{Solution:} Remove the common component by subtracting the mean embedding. This is called centering or debiasing. After centering, $\tilde{e}_i = e_i - \mu$ for all $i$, and the embeddings are more evenly distributed. Similarities are now more discriminative because they reflect only the semantic components $u_i$ and $u_j$, not the shared bias $\mu$.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Whitening: Fixing the Geometry}
+
+A more aggressive fix than centering is whitening. Whitening transforms the embeddings so that their covariance is the identity matrix. This makes the space isotropic: all directions have equal variance.
+
+The whitening transformation is:
+
+\begin{equation}
+\tilde{e}_i = \Sigma^{-1/2}(e_i - \mu)
+\end{equation}
+
+where $\mu$ is the mean embedding and $\Sigma$ is the covariance matrix. The transformed embeddings $\tilde{e}_i$ have zero mean and identity covariance.
+
+\vspace{1em}
+
+Whitening has two effects:
+
+\begin{itemize}
+\item It removes the common component (like centering)
+\item It equalizes variance in all directions (removes dominant principal components)
+\end{itemize}
+
+\vspace{1em}
+
+After whitening, cosine similarities are more evenly distributed. High similarity truly means semantic relatedness, not just sharing the common component. Nearest neighbor search becomes more effective.
+
+\vspace{1em}
+
+However, whitening is not always beneficial. You should avoid whitening when:
+
+\begin{itemize}
+\item \textbf{Frequency information matters:} In some applications, common words should have larger magnitude to reflect their importance. Whitening destroys this signal.
+
+\item \textbf{Principal components capture important semantics:} The dominant directions might encode meaningful structure like topic or sentiment. Whitening removes this structure by equalizing all directions.
+
+\item \textbf{Embeddings are used for generation:} If you are sampling from the embedding space to generate text, the original distribution matters. Whitening changes the distribution and might make generation less coherent.
+\end{itemize}
+
+\vspace{1em}
+
+\textbf{When to use whitening:} Primarily for retrieval tasks where only relative similarities matter. If you only care about ranking by similarity, whitening can substantially improve the discriminative power of your embeddings.
+
+\vspace{1.5em}
+
+\subsection{Subword Tokenization and Rare Token Problems}
+
+Subword tokenization creates a challenge: rare tokens have poor embeddings. Why? Because they appear infrequently in training data, so their embeddings are not well optimized. They end up in arbitrary positions, often far from semantically related tokens.
+
+This affects performance on rare words, names, and domain specific terms. The model sees these tokens rarely, so it cannot learn good representations.
+
+\vspace{1em}
+
+There are several approaches to mitigate this:
+
+\begin{itemize}
+\item \textbf{Character or byte level fallback:} If a token is rare, fall back to character or byte level encoding. This guarantees that every string can be represented, even if not optimally.
+
+\item \textbf{Pretraining on diverse data:} Include data from many domains so that rare tokens in one domain are common in another. This helps the model learn better embeddings for a wider vocabulary.
+
+\item \textbf{Subword pooling:} Represent rare words as combinations of their subword pieces. If "unbelievable" is broken into "un", "believ", "able", pool the embeddings of these pieces. This leverages compositionality.
+
+\item \textbf{Fine tuning embeddings:} If you have domain specific data, fine tune the embedding layer to improve representations for your specific vocabulary. This is especially useful for proper nouns and technical terms.
+\end{itemize}
+
+\vspace{2em}
+
+Take a breath here. Tokenization and embeddings are the foundation of how models represent text. The geometry of the embedding space determines how well the model can capture semantic relationships. Anisotropy and rare token problems are real issues that you need to understand and address.
+
+\vspace{2em}
+
+%==========================
+\section{Similarity Search and Information in Retrieval}
+
+\subsection{Why Normalize to the Sphere?}
+
+In many applications, embeddings are normalized to unit length. This projects them onto the unit sphere. Distances are then measured using cosine similarity:
+
+\begin{equation}
+\text{cosine}(u, v) = \frac{u^\top v}{\|u\| \|v\|} = u^\top v \text{ (if normalized)}
+\end{equation}
+
+Why do this? Because for many semantic tasks, the direction of the embedding matters more than its magnitude. "King" and "queen" should have similar directions even if their magnitudes differ slightly.
+
+\vspace{1em}
+
+Normalizing to the sphere also has computational benefits. Cosine similarity is just a dot product, which is fast. And you do not need to store or compute norms.
+
+\vspace{1em}
+
+\textbf{When to use L2 distance vs cosine similarity:}
+
+\begin{itemize}
+\item \textbf{Cosine similarity:} Use when direction matters more than magnitude. Typical for semantic similarity, document retrieval, and recommendation systems. Robust to scale differences (a longer document should not automatically be more similar).
+
+\item \textbf{L2 (Euclidean) distance:} Use when magnitude carries meaning. Typical for images (brightness matters), audio (volume matters), or when embeddings are calibrated so that magnitude encodes confidence or importance.
+\end{itemize}
+
+\vspace{1em}
+
+In practice, for normalized embeddings, L2 distance and cosine similarity are monotonically related: $\|u - v\|^2 = 2(1 - u^\top v)$. So ranking by L2 distance gives the same order as ranking by cosine similarity.
+
+\vspace{1.5em}
+
+\subsection{Angular Distances and the Dot Product}
+
+On the sphere, the natural distance is angular distance:
+
+\begin{equation}
+\theta = \arccos(u^\top v)
+\end{equation}
+
+This is the angle between the two vectors. If $\theta = 0$, they point in the same direction (identical). If $\theta = \pi/2$, they are orthogonal (unrelated). If $\theta = \pi$, they point in opposite directions (antonyms or opposites).
+
+For small angles, angular distance is approximately Euclidean distance:
+
+\begin{equation}
+\|u - v\|^2 = 2(1 - u^\top v) = 2(1 - \cos\theta) \approx \theta^2 \text{ for small } \theta
+\end{equation}
+
+So for nearby points on the sphere, angular distance and Euclidean distance are nearly the same. This is why many algorithms that assume Euclidean geometry still work reasonably well on the sphere.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Cosine similarity vs Euclidean distance}
+
+\vspace{0.5em}
+
+Suppose you have two normalized embeddings with cosine similarity $\cos\theta = 0.9$. What is the angular distance? What is the Euclidean distance?
+
+\vspace{0.5em}
+
+Angular distance:
+\begin{equation*}
+\theta = \arccos(0.9) \approx 0.451 \text{ radians} \approx 25.8 \text{ degrees}
+\end{equation*}
+
+Euclidean distance:
+\begin{equation*}
+\|u - v\|^2 = 2(1 - 0.9) = 0.2, \quad \|u - v\| \approx 0.447
+\end{equation*}
+
+Notice that the Euclidean distance 0.447 is close to the angular distance 0.451. This is the small angle approximation.
+
+\vspace{0.5em}
+
+Now suppose the cosine similarity is 0 (orthogonal). What are the distances?
+
+\vspace{0.5em}
+
+Angular distance:
+\begin{equation*}
+\theta = \arccos(0) = \pi/2 \approx 1.571 \text{ radians} \approx 90 \text{ degrees}
+\end{equation*}
+
+Euclidean distance:
+\begin{equation*}
+\|u - v\|^2 = 2(1 - 0) = 2, \quad \|u - v\| \approx 1.414
+\end{equation*}
+
+Now the Euclidean distance 1.414 is smaller than the angular distance 1.571. The small angle approximation breaks down.
+
+\vspace{0.5em}
+
+\textbf{Practical implication:} For highly similar embeddings (cosine close to 1), Euclidean distance and angular distance are nearly the same. For dissimilar embeddings, they diverge. If you care about precise distances, use angular distance. If you just want a rough ranking, Euclidean distance is fine and faster to compute.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Semantic Structure in Embedding Spaces}
+
+High quality embedding spaces have geometric structure that reflects semantic relationships. Some examples:
+
+\begin{itemize}
+\item \textbf{Clustering:} Semantically related words cluster together. All country names are in one region, all colors in another, all verbs in another.
+
+\item \textbf{Linear substructures:} Relationships can be captured by vector arithmetic. The famous example is "king" minus "man" plus "woman" equals "queen." This suggests that gender is a linear direction in the space.
+
+\item \textbf{Analogies:} If $a : b :: c : d$ (a is to b as c is to d), then $b - a \approx d - c$ in the embedding space. This captures relational similarity.
+\end{itemize}
+
+\vspace{1em}
+
+These properties are not automatic. They emerge from training on large corpora with appropriate objectives. The distributional hypothesis ("words that occur in similar contexts have similar meanings") drives the geometry. Co-occurrence statistics shape the embedding space.
+
+\vspace{1em}
+
+However, not all structure is semantic. Some structure reflects frequency (common words cluster together), some reflects syntactic roles (nouns vs verbs), some reflects training artifacts. Interpreting embedding geometry requires care.
+
+\vspace{1em}
+
+\textbf{Connection to attention mechanisms:} In transformers, dot product attention computes similarities between query and key vectors. This is essentially cosine similarity (after scaling). The attention mechanism is performing a soft nearest neighbor lookup in embedding space, retrieving information from positions with high similarity to the query. We will explore this connection deeply in the next chapter when we study transformers as conditional compressors.
+
+\vspace{2em}
+
+%==========================
+\section{The k-NN Problem and Approximate Nearest Neighbors}
+
+\subsection{Why Exact Search Is Expensive}
+
+Given a query vector $q$ and a database of $n$ vectors in $\mathbb{R}^d$, find the $k$ nearest neighbors to $q$. This is the k-NN problem, and it is fundamental to many applications:
+
+\begin{itemize}
+\item \textbf{Retrieval augmented generation:} Find the most relevant documents for a query, then generate an answer using those documents.
+
+\item \textbf{Recommendation systems:} Find items similar to what the user has liked in the past.
+
+\item \textbf{Image search:} Find images similar to a query image based on embedding similarity.
+
+\item \textbf{Anomaly detection:} Find the nearest normal examples to a test point. If the nearest neighbors are far away, the test point is anomalous.
+\end{itemize}
+
+
+Exact k-NN requires computing distances to all $n$ vectors, which is $O(nd)$ time (where $d$ is the dimension). For large $n$ (millions or billions) and large $d$ (hundreds or thousands), this is too slow.
+
+So we use approximate nearest neighbors (ANN). The goal is to find vectors that are probably among the true k nearest neighbors, but with much less computation. You trade off recall (the fraction of true neighbors you find) for speed.
+
+\vspace{1.5em}
+
+\subsection{Why ANN Works Despite the Curse of Dimensionality}
+
+Earlier we discussed how distances become uniform in high dimensions, which makes nearest neighbor search seem hopeless. Yet approximate nearest neighbor methods work well in practice. Why?
+
+The key insight is that real data has structure:
+
+\begin{itemize}
+\item \textbf{Data lives on lower dimensional manifolds:} Natural images, text embeddings, and audio signals have intrinsic dimension much lower than the ambient dimension. The effective dimension might be 10 or 20, even if the embedding dimension is 1000.
+
+\item \textbf{We accept approximate answers:} Exact nearest neighbors might not be necessary. Finding points that are close enough (say, in the top 10\% by distance) is often sufficient for applications.
+
+\item \textbf{Indexing exploits local geometry:} Methods like HNSW build graphs that capture local neighborhood structure. They navigate from region to region, exploiting the fact that nearby points tend to cluster.
+
+\item \textbf{Relative distances still carry information:} Even if absolute distances are concentrated, the ranking of distances (which points are closer vs farther) still carries information. ANN methods preserve this ranking.
+\end{itemize}
+
+\vspace{1em}
+
+This is why approximate nearest neighbor search is tractable despite the theoretical curse of dimensionality. The structure in real data makes the problem much easier than the worst case.
+
+\vspace{1.5em}
+
+\subsection{Indexing Structures for ANN}
+
+There are many indexing structures for approximate nearest neighbor search:
+
+\begin{itemize}
+\item \textbf{Hierarchical navigable small world (HNSW):} Build a graph where each node is a vector and edges connect nearby vectors. Search by navigating the graph from a random starting point toward the query.
+
+\item \textbf{Product quantization (PQ):} Compress vectors into short codes by clustering subspaces independently. Search by comparing codes instead of full vectors.
+
+\item \textbf{Locality sensitive hashing (LSH):} Hash vectors so that nearby vectors hash to the same bucket with high probability. Search by checking buckets that the query hashes to.
+
+\item \textbf{Inverted file index (IVF):} Partition the space into Voronoi cells using k-means clustering. Index vectors by which cell they belong to. Search by checking the cells nearest to the query.
+\end{itemize}
+
+\vspace{1em}
+
+Each method has different tradeoffs between speed, memory, and recall. HNSW is generally the best for high recall but uses more memory. Product quantization is more memory efficient but has lower recall. LSH is fast but has high variance in recall.
+
+\vspace{1.5em}
+
+\subsection{Product Quantization: Compressing Embeddings}
+
+Product quantization deserves special attention because it achieves impressive compression while maintaining good search quality. The key idea is to split the $d$ dimensional vector into $m$ subspaces of dimension $d/m$ each, then quantize each subspace independently.
+
+\vspace{1em}
+
+Here is how it works:
+
+\begin{enumerate}
+\item Split each vector $x \in \mathbb{R}^d$ into $m$ subvectors: $x = [x_1, x_2, \ldots, x_m]$ where each $x_i \in \mathbb{R}^{d/m}$.
+
+\item For each subspace $i$, run k-means clustering with $k = 256$ clusters (so we can represent the cluster ID with 8 bits). This gives us $m$ codebooks, each with 256 centroids.
+
+\item Represent each vector by its $m$ cluster IDs, one per subspace. This takes $m \times 8$ bits total.
+
+\item To compute distance to a query, precompute distances from the query's subvectors to all centroids in each codebook ($m \times 256$ distances). Then for any database vector represented by cluster IDs, look up the distances in these tables and sum them. This is much faster than computing the full dot product.
+\end{enumerate}
+
+\vspace{1em}
+
+The compression ratio is $(d \times 32) / (m \times 8) = 4d/m$. For $d = 768$ and $m = 96$ (8 dimensions per subspace), the compression is $4 \times 768 / 96 = 32$ times. You store 24 bytes per vector instead of 3072 bytes.
+
+\vspace{1em}
+
+The approximation error comes from quantization: each subvector is replaced by its nearest centroid, which introduces distortion. But because subspaces are quantized independently and the distortions average out, the overall distance approximation is often quite accurate.
+
+\vspace{1.5em}
+
+\subsection{Information Theoretic View of Retrieval}
+
+Retrieval can be viewed through an information theoretic lens. The query $q$ provides information about which vectors in the database are relevant. The goal is to use this information efficiently to locate the relevant vectors.
+
+Each comparison (computing a distance or checking an index) provides some number of bits of information. If the database has $n$ vectors and you need to identify the nearest neighbor, you need about $\log_2 n$ bits of information to specify it.
+
+\vspace{1em}
+
+A perfect binary search would find the nearest neighbor with $\log_2 n$ comparisons. But binary search requires a total ordering, which does not exist for vectors in high dimensions. So we need more comparisons.
+
+Approximate nearest neighbor algorithms use indexing structures to reduce the number of comparisons. They provide a lossy compression: you do not get the exact nearest neighbor, but you get a good approximation with fewer bits.
+
+\vspace{1em}
+
+Recall from Chapter 1 that rate distortion theory formalizes the tradeoff between compression and accuracy. Retrieval is an instance of this tradeoff: you compress the search space (by using an index, by quantizing vectors, by approximating distances), and you accept some distortion (loss of recall) in exchange for faster search (lower rate, measured in comparisons or bits).
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Information cost of k-NN search}
+
+\vspace{0.5em}
+
+Suppose you have a database of $n = 1{,}000{,}000$ vectors and you want to find the $k = 10$ nearest neighbors to a query.
+
+\vspace{0.5em}
+
+\textbf{Brute force search:}
+
+Compute distance to all $n$ vectors. If each distance computation takes 1 unit of work, total cost is $n = 1{,}000{,}000$ units.
+
+\vspace{0.5em}
+
+\textbf{HNSW index:}
+
+Build a graph with about $\log n \approx 20$ layers. At each layer, visit a small number of nodes (say 10). Total cost is about $10 \times 20 = 200$ distance computations.
+
+This is a speedup of $1{,}000{,}000 / 200 = 5000$ times. You pay a cost in memory (storing the graph) and a small loss in recall (you might miss some true neighbors).
+
+\vspace{0.5em}
+
+\textbf{Product quantization:}
+
+Compress each vector from $d = 768$ dimensions (using 4 bytes per dimension, so 3072 bytes) to a code of length 96 bytes (compression ratio of 32).
+
+Distance computations on codes are much faster (looking up precomputed tables instead of computing dot products). The speedup is about 50 times for computing distances, plus the compression saves memory.
+
+However, quantization introduces errors. The compressed distance is an approximation to the true distance, so recall drops (you might retrieve slightly wrong neighbors).
+
+\vspace{0.5em}
+
+\textbf{Information theoretic view:} You need about $\log_2 n = 20$ bits to specify one neighbor out of $n$. For $k = 10$ neighbors, you need about $10 \times 20 = 200$ bits of information. HNSW achieves this by visiting about 200 nodes (each node provides about 1 bit of information on average, saying "go this direction"). Product quantization achieves this by compressing vectors to codes that preserve enough information for ranking.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Recall and Precision as Information Measures}
+
+Recall and precision measure how well retrieval works:
+
+\begin{itemize}
+\item \textbf{Recall:} What fraction of the true nearest neighbors did you find?
+
+\item \textbf{Precision:} What fraction of the vectors you returned are actually nearest neighbors?
+\end{itemize}
+
+\vspace{1em}
+
+In the exact case, both recall and precision are 100\%. In approximate search, you trade off recall for speed. Higher recall means more information (you capture more of the true neighbors), but higher computational cost.
+
+From an information theoretic perspective, recall measures how much information your retrieval system captures about the true nearest neighbors. If recall is 90\%, you have captured most of the information but missed 10\%. If recall is 50\%, you have lost half the information.
+
+\vspace{1em}
+
+This connects to rate distortion theory from Chapter 1. Retrieval is a form of lossy compression: you compress the database into an index, and you accept some distortion (loss of recall) in exchange for faster search (lower rate, measured in comparisons or bits).
+
+\vspace{2em}
+
+%==========================
+
+\begin{geometrylens}
+\textbf{Voronoi Cells and Space Partitioning}
+
+\vspace{0.5em}
+
+Many indexing structures for nearest neighbor search are based on partitioning the space into cells. Each cell contains a cluster of nearby vectors. To search, you identify which cells the query is close to, then search within those cells.
+
+\vspace{0.5em}
+
+The most common partitioning is Voronoi cells. Given a set of centroids $c_1, \ldots, c_m$, the Voronoi cell for $c_i$ is the set of all points that are closer to $c_i$ than to any other centroid:
+
+\begin{equation*}
+V_i = \{x : \|x - c_i\| \leq \|x - c_j\| \text{ for all } j\}
+\end{equation*}
+
+Voronoi cells partition the space into convex polytopes. Each cell has a single centroid, and all points in the cell are closest to that centroid.
+
+\vspace{0.5em}
+
+IVF (inverted file index) uses Voronoi cells. You cluster the database vectors using k-means to get $m$ centroids. Each vector is assigned to the nearest centroid. At query time, you find the nearest centroids to the query and search the vectors in those cells.
+
+\vspace{0.5em}
+
+The geometry of Voronoi cells determines recall. If cells are small (many centroids), the query might span multiple cells, and you need to search multiple cells to get high recall. If cells are large (few centroids), each cell contains many vectors, and search within a cell is slow.
+
+\vspace{0.5em}
+
+There is a tradeoff between the number of cells and the size of cells. This is an instance of the bias variance tradeoff: too few cells and you have high variance (large cells, slow search), too many cells and you have high bias (you might miss the correct cell, low recall).
+\end{geometrylens}
+
+\vspace{2em}
+
+%==========================
+
+\begin{pausebox}
+Let me check your understanding. Can you explain why high dimensional balls are hollow (most volume near the surface)? Do you understand why random vectors in high dimensions are nearly orthogonal? Can you state the Johnson Lindenstrauss lemma and explain intuitively why it works (projection preserves length in expectation, concentration ensures small variance)?
+
+\vspace{0.5em}
+
+Can you explain what anisotropy is in embedding spaces and why it is a problem? Do you understand the difference between centering and whitening, and when you would use each? Can you explain why cosine similarity is used for normalized embeddings, and how it relates to angular distance?
+
+\vspace{0.5em}
+
+Can you articulate the tradeoff between recall and speed in approximate nearest neighbor search? Do you understand why ANN works despite the curse of dimensionality (data structure, approximate answers, local geometry)? Can you explain how product quantization achieves compression and why it introduces distortion?
+
+\vspace{0.5em}
+
+If any of these feel unclear, revisit the relevant section. High dimensional geometry is counterintuitive, and it is worth spending time to build solid intuition. These concepts underlie all modern embedding based systems, from language models to image search to recommendation engines.
+\end{pausebox}
+
+\vspace{1em}
+
+This chapter explored the strange and wonderful world of high dimensional representations. We learned about concentration of measure: how volume concentrates near the surface of balls, how random vectors are nearly orthogonal, and how distances become uniform. We saw the Johnson Lindenstrauss lemma, which says you can compress high dimensional data with minimal distortion using random projections, and we sketched why it works through concentration of measure. We dove into tokenization and embedding geometry, understanding anisotropy and how whitening can fix pathological spaces (though whitening should be used carefully, primarily for retrieval tasks). We explored cosine similarity and angular distance on the sphere, seeing when to use L2 vs cosine distance. Finally, we connected information theory to similarity search, understanding why ANN works despite the curse of dimensionality, viewing retrieval as lossy compression with a tradeoff between recall and speed.
+
+High dimensional geometry is not intuitive, but it is essential for working with modern AI systems. Embeddings are the lingua franca of machine learning: everything becomes vectors, and all operations are geometric. Understanding the properties of these spaces, their pathologies and their structure, is what separates practitioners who use embeddings blindly from those who use them effectively.
+
+In the next chapter, we will turn to models themselves. We will see transformers as conditional compressors, understanding autoregression through the lens of incremental codelength minimization. The information theoretic and geometric foundations we have built will illuminate how transformers work and why they succeed, and we will see how attention mechanisms perform soft nearest neighbor lookups in embedding space using dot product similarity.

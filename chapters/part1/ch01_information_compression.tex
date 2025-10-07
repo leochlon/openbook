@@ -1,0 +1,678 @@
+%==========================
+% Chapter 1: Information as Compression
+%==========================
+
+\chapter{Information as Compression}
+
+\begin{keyinsight}
+Learning is compression. When a model learns patterns in data, it is discovering a shorter description of that data. When it makes predictions, it assigns probabilities that correspond to optimal code lengths. Understanding this equivalence transforms how we design, train, and evaluate generative models.
+\end{keyinsight}
+
+\vspace{1.5em}
+
+This chapter establishes the foundation for everything that follows. We will see that Shannon's information theory provides not just an analogy for machine learning, but the actual mathematical framework. The loss functions we minimize, the metrics we report, and the tradeoffs we navigate all have precise information theoretic interpretations.
+
+We begin with Shannon's revolutionary insight: optimal communication requires shorter codes for common messages and longer codes for rare ones. This leads directly to the connection between probability and code length. We then explore how minimizing description length (the MDL principle) gives us a principled way to choose between models. Next, we understand cross entropy and perplexity as measures of compression quality. We dive into rate distortion theory to understand the fundamental tradeoff between compression and accuracy. Finally, we see how thinking in information budgets leads to better decisions about model design and deployment.
+
+\textbf{Notation:} Throughout this book, $\log$ without a subscript means natural logarithm (base $e$). When we need base 2, we will write $\log_2$. We use $p$ and $q$ for probability distributions (or densities in the continuous case), and $H$ for entropy or cross entropy. We will be consistent about this notation so you can focus on the ideas rather than decoding symbols.
+
+Take your time with each section. The ideas build on each other, but I will make sure each concept is clear before moving to the next.
+
+\vspace{2em}
+
+%==========================
+\section{From Shannon to MDL: Why Codelength Is Loss}
+
+\subsection{Shannon's Foundational Insight}
+
+In 1948, Claude Shannon published a paper that changed everything. He asked a deceptively simple question: what is the fundamental limit of data compression? His answer created information theory and gave us the tools to understand learning itself.
+
+Here is Shannon's key insight. Suppose you want to send messages over a channel that can only transmit zeros and ones. You want to use as few bits as possible because bandwidth costs money. How should you design your encoding scheme?
+
+Shannon proved that the optimal strategy is to use shorter codes for messages that occur frequently and longer codes for messages that occur rarely. If a message occurs with probability $p$, the optimal code length is approximately $\log_2(1/p)$ bits. This is not an arbitrary choice or a convenient approximation. It is the fundamental limit imposed by the mathematics of communication.
+
+Let me show you why this makes intuitive sense. If an event has probability $1/2$, it occurs half the time. You can encode it with a single bit: 0 means it happened, 1 means it did not. One bit is exactly $\log_2(1/(1/2)) = \log_2(2) = 1$.
+
+If an event has probability $1/4$, it is one of four equally likely possibilities. You need two bits to distinguish among them: 00, 01, 10, 11. Two bits is exactly $\log_2(1/(1/4)) = \log_2(4) = 2$.
+
+The pattern continues. Probability $1/8$ needs three bits. Probability $1/16$ needs four bits. The logarithm converts the reciprocal of probability into bits needed.
+
+\subsection{From Bits to Nats}
+
+In machine learning, we typically use natural logarithms instead of base two logarithms. This gives us nats instead of bits. The conversion is straightforward: one nat equals $1/\ln(2) \approx 1.443$ bits. Everything we say about bits applies equally to nats, just with a different scale.
+
+Why use nats? Mostly mathematical convenience. Natural logarithms appear naturally (no pun intended) in calculus and probability theory. The derivative of $\ln(x)$ is $1/x$, which makes optimization cleaner. The exponential function $e^x$ and natural logarithm $\ln(x)$ are inverses, which simplifies many derivations.
+
+But the concepts are identical. Whether you measure in bits or nats, the relationship between probability and code length is the same. Lower probability means longer code. Higher probability means shorter code. Learning means discovering which outcomes have high probability so you can assign them short codes.
+
+\subsection{Why Log Loss Is Codelength}
+
+Now we can connect Shannon's theory to machine learning. When we train a model by minimizing log loss, what are we really doing? We are teaching the model to compress data efficiently.
+
+The log loss for a single prediction is $\log(1/p)$, where $p$ is the probability the model assigns to what actually happened. This is exactly the codelength in nats (or bits if using $\log_2$) for encoding that outcome using the model's probability distribution.
+
+If your model assigns high probability to what actually occurs, the codelength is small. If your model assigns low probability to what actually occurs, the codelength is large. The model pays a steep penalty for being surprised.
+
+Over a dataset with $n$ examples, the total log loss is the sum of codelengths:
+\begin{equation}
+\text{Total log loss} = \sum_{i=1}^{n} \log(1/p_i)
+\end{equation}
+
+This is the total number of nats (or bits) needed to encode the entire dataset using the model's probability distribution. Minimizing log loss means finding the model that compresses the dataset most efficiently.
+
+Note: We are discussing optimal codelengths in theory. In practice, you would use arithmetic coding to actually achieve these codelengths when transmitting data. Arithmetic coding can asymptotically achieve the Shannon limit, encoding data using $H(p) + o(1)$ bits on average. 
+
+An interesting variant is \textbf{universal coding}: designing codes that work well even when you do not know the true distribution $p$ in advance. Universal codes adapt to the data they see, achieving near optimal compression without requiring perfect prior knowledge. For instance, the Krichevsky-Trofimov estimator achieves regret of $O(\log n)$ when coding binary sequences, meaning the extra codelength compared to knowing $p$ from the start grows only logarithmically with the amount of data. This connects to online learning: as you see more data, your code (and your model) improves, approaching optimality asymptotically.
+
+\subsection{Connection to Maximum Likelihood}
+
+There is a deep connection here to maximum likelihood estimation, which is the standard approach in statistics. When you maximize likelihood, you are finding the parameters that make the observed data most probable. When you minimize log loss, you are doing exactly the same thing.
+
+To see this, note that maximizing likelihood $p(D \mid \theta)$ is equivalent to minimizing negative log likelihood $-\log p(D \mid \theta)$. For independent examples, this is:
+\begin{equation}
+-\log p(D \mid \theta) = -\sum_{i=1}^{n} \log p(x_i \mid \theta) = \sum_{i=1}^{n} \log(1/p(x_i \mid \theta))
+\end{equation}
+
+This is exactly the total log loss. Maximum likelihood and minimum description length are two sides of the same coin. The most likely model is the model that compresses the data most effectively.
+
+\subsection{The Minimum Description Length Principle}
+
+Shannon's insight leads directly to a powerful principle for learning: the Minimum Description Length (MDL) principle. The idea is beautifully simple. The best model is the one that compresses the data most effectively.
+
+But there is a subtlety. You need to account for the cost of describing the model itself. A very complex model might fit the training data perfectly (short description of data given model) but require many bits to specify (long description of model). A very simple model might be cheap to describe (short description of model) but fit the data poorly (long description of data given model).
+
+The version I am presenting here is called \textbf{two-part MDL}: choose the model that minimizes the total description length, which is the sum of:
+
+\begin{enumerate}
+\item The number of bits needed to describe the model itself
+\item The number of bits needed to describe the data given the model
+\end{enumerate}
+
+This formulation has a problem: there is no unique way to encode the model. How many bits do you use per parameter? What precision? Different encoding schemes give different results, which means the split between "model complexity" and "data fit" is somewhat arbitrary. This is a real weakness of two-part MDL.
+
+More modern formulations like \textbf{refined MDL} (developed by Peter Grünwald) address this by avoiding the arbitrary split. Refined MDL uses a universal code that adapts to both model and data simultaneously, giving a more principled total description length. We will not go into the technical details here, but you should know that MDL is more subtle than the simple two-part version suggests.
+
+Another related approach is \textbf{Minimum Message Length (MML)}, developed by Chris Wallace. MML takes a Bayesian approach: instead of separating model and data encoding, it encodes them jointly using a prior over models. MML addresses some of the arbitrariness in two-part MDL by using Bayesian probability to determine encoding precision. The details differ, but the spirit is the same: shorter descriptions are better.
+
+Despite these subtleties, two-part MDL still gives us useful intuition: you should balance model complexity against fit to data. It is an information theoretic foundation for Occam's razor, even if the exact accounting is not unique.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{MDL in polynomial curve fitting}
+
+\vspace{0.5em}
+
+Suppose you have 20 data points and you are trying to decide between three models. To illustrate the idea, I will use a specific encoding scheme for parameters (say, 10 bits per parameter), but you should be aware that this choice is arbitrary. Different precision choices would give different results, which is one of the limitations of two-part MDL.
+
+\vspace{0.5em}
+
+\textbf{Model 1: A straight line (2 parameters)}
+
+The model itself takes 20 bits to describe (2 parameters × 10 bits per parameter). But the fit is imperfect. The data points deviate from the line, so describing these deviations takes 500 bits. Total description length: $20 + 500 = 520$ bits.
+
+\vspace{0.5em}
+
+\textbf{Model 2: A cubic polynomial (4 parameters)}
+
+The model takes 40 bits to describe (4 parameters × 10 bits per parameter). The fit is much better, so the residuals take only 200 bits to describe. Total description length: $40 + 200 = 240$ bits. This is better than the straight line.
+
+\vspace{0.5em}
+
+\textbf{Model 3: A degree 19 polynomial (20 parameters)}
+
+The model takes 200 bits to describe (20 parameters × 10 bits per parameter). The fit is perfect: the polynomial passes through every point, so the residuals take 0 bits to describe. Total description length: $200 + 0 = 200$ bits.
+
+\vspace{0.5em}
+
+At first glance, Model 3 seems best: 200 bits is less than 240 bits. But this is deceptive. The degree 19 polynomial has overfit. It will compress the training data well but generalize poorly to new data. On test data, you will need many bits to describe the residuals, and the total cost will be high.
+
+\vspace{0.5em}
+
+The qualitative insight remains valid even though the specific numbers depend on our arbitrary choice of encoding scheme: complex models pay an upfront cost in describing themselves. This cost is only justified if they achieve substantially better compression of the data.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Connection to Bayesian Model Selection}
+
+There is a deep connection between MDL and Bayesian model selection. The two-part code length approximates the negative log probability of data and model together:
+\begin{equation}
+\text{Code length} \approx -\log p(D, M) = -\log p(D \mid M) - \log p(M)
+\end{equation}
+
+The first term $-\log p(D \mid M)$ is the description length of data given the model (this is the marginal likelihood or evidence). The second term $-\log p(M)$ is the description length of the model itself (this comes from a prior over models).
+
+So minimizing description length is equivalent to maximizing the joint probability of data and model, which is a form of Bayesian model selection. The difference is that MDL tries to avoid specifying priors explicitly by using coding theory, while Bayesian model selection requires you to specify priors. In practice, choosing an encoding scheme in MDL is equivalent to choosing an implicit prior.
+
+One interesting complication: modern overparameterized neural networks seem to violate naive parameter counting MDL. A network with billions of parameters should have a huge description length, yet such networks often generalize well. 
+
+Why do overparameterized models generalize despite high MDL? Several explanations have been proposed:
+
+\begin{itemize}
+\item \textbf{Lottery ticket hypothesis:} Most parameters can be pruned without hurting performance (Frankle \& Carbin, 2019). The effective model complexity is much smaller than the raw parameter count. A sparse subnetwork exists that performs as well as the full network.
+
+\item \textbf{Implicit regularization of SGD:} Stochastic gradient descent has an implicit bias toward simple solutions (Zhang et al., 2017). Even in a high dimensional parameter space, SGD finds solutions in low dimensional subspaces or solutions with other forms of simplicity.
+
+\item \textbf{Double descent:} Generalization error can decrease again after the interpolation threshold, forming a U-shaped curve (Belkin et al., 2019). Classical bias variance tradeoff applies in the underparameterized regime, but overparameterized models enter a new regime where more parameters help.
+\end{itemize}
+
+These phenomena suggest that MDL should count effective degrees of freedom that matter for prediction, not just raw parameters. Understanding how to properly count complexity in overparameterized models remains an active research area, and it challenges our intuitions about what makes a model "simple" or "complex."
+
+\vspace{2em}
+
+%==========================
+\section{Cross Entropy, Perplexity, and Log Loss as Expected Codelength}
+
+\subsection{From Single Examples to Distributions}
+
+So far, we have talked about the codelength for individual examples. But in practice, we care about expected performance over a distribution of examples. This is where cross entropy comes in.
+
+Cross entropy between a true distribution $p$ and a model distribution $q$ is the expected codelength when you use $q$ to encode data from $p$:
+\begin{equation}
+H(p, q) = \mathbb{E}_{x \sim p}\left[\log(1/q(x))\right]
+\end{equation}
+
+For discrete distributions, this expectation becomes a sum:
+\begin{equation}
+H(p, q) = \sum_{x} p(x) \log(1/q(x))
+\end{equation}
+
+For continuous distributions, it becomes an integral:
+\begin{equation}
+H(p, q) = \int p(x) \log(1/q(x)) \, dx
+\end{equation}
+
+The expectation notation $\mathbb{E}_{x \sim p}[\cdot]$ works for both discrete and continuous cases, which is why we often use it. Throughout this book, we will work with both discrete data (like tokens in language models) and continuous data (like pixel values in images), and the expectation notation lets us handle both uniformly.
+
+Let me unpack the meaning carefully. You have some true distribution $p$ that generates data. You have a model with distribution $q$ that you use to compress that data. For each possible outcome $x$, the model assigns it codelength $\log(1/q(x))$. The true distribution says outcome $x$ occurs with probability $p(x)$ (or probability density in the continuous case). The cross entropy is the average codelength, weighted by how often each outcome actually occurs.
+
+If your model distribution $q$ matches the true distribution $p$ perfectly, then cross entropy equals entropy: $H(p, q) = H(p)$. The entropy $H(p)$ is the theoretical minimum average codelength for data from $p$. You cannot do better than this, even in principle. It is the Shannon limit.
+
+If your model distribution $q$ differs from $p$, then cross entropy is larger than entropy: $H(p, q) > H(p)$. The difference is the KL divergence:
+\begin{equation}
+\text{KL}(p \| q) = H(p, q) - H(p)
+\end{equation}
+
+The KL divergence measures the extra bits (or nats) you pay by using the wrong distribution. It is always nonnegative, and it equals zero only when $p = q$. This is why minimizing cross entropy is equivalent to minimizing KL divergence (since entropy is fixed for a given dataset).
+
+\vspace{1em}
+
+\begin{geometrylens}
+\textbf{KL Divergence as Relative Entropy and Information Geometry}
+
+\vspace{0.5em}
+
+The Kullback Leibler divergence $\text{KL}(p \| q)$ has a beautiful information theoretic interpretation. It measures the extra codelength you pay by using distribution $q$ to compress data from distribution $p$. It equals $H(p, q) - H(p)$: cross entropy minus entropy.
+
+\vspace{0.5em}
+
+Geometrically, KL divergence is not a metric (it is not symmetric and does not satisfy the triangle inequality), but it is a Bregman divergence. This means it has special properties that make it perfect for optimization. It is always nonnegative. It equals zero only when $p = q$. It is convex in its second argument.
+
+\vspace{0.5em}
+
+The asymmetry matters deeply. $\text{KL}(p \| q)$ is not the same as $\text{KL}(q \| p)$. When you minimize $\text{KL}(p \| q)$ over $q$ (called I-projection or information projection), you find the distribution in your model family that is closest to $p$ in the information geometry sense. This is the foundation of maximum likelihood estimation, variational inference, and expectation maximization.
+
+\vspace{0.5em}
+
+When you minimize $\text{KL}(q \| p)$ over $q$ (called M-projection or moment projection), you get different behavior. This is mode seeking: $q$ concentrates on regions where $p$ has high mass, potentially ignoring other modes. We will explore this duality in depth in Chapter 3 when we study the geometry of probability.
+
+\vspace{0.5em}
+
+For now, the key takeaway is that KL divergence is not just a mathematical curiosity. It is the natural measure of distance between probability distributions, grounded in the fundamental principles of information theory. When we minimize KL divergence, we are minimizing wasted bits. We are finding the most efficient representation possible given our model constraints.
+\end{geometrylens}
+
+\vspace{1.5em}
+
+\subsection{Cross Entropy in Practice}
+
+In practice, we do not know the true distribution $p$. We only have a finite dataset sampled from $p$. So we estimate cross entropy by averaging log loss over the dataset:
+\begin{equation}
+\hat{H}(p, q) = \frac{1}{n} \sum_{i=1}^{n} \log(1/q(x_i))
+\end{equation}
+
+This is the empirical cross entropy. It is our estimate of the expected codelength. The larger the dataset, the better the estimate (by the law of large numbers).
+
+When we train a model to minimize cross entropy on a training set, we are teaching it to compress that training set efficiently. When we evaluate cross entropy on a held out test set, we are measuring how well the model compresses data it has never seen. This tests generalization.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Cross entropy for a language model}
+
+\vspace{0.5em}
+
+Suppose you train a language model on English text and evaluate it on a held out test set of 1 million tokens. The model achieves a cross entropy of 2.5 nats per token.
+
+\vspace{0.5em}
+
+What does this mean?
+
+\vspace{0.5em}
+
+It means that on average, the model needs 2.5 nats to encode each token in the test set. For the full test set of 1 million tokens, the model needs $2.5 \times 1{,}000{,}000 = 2.5$ million nats total, which is about 3.6 million bits (since 1 nat $\approx$ 1.443 bits).
+
+\vspace{0.5em}
+
+If you had a perfect model that matched the true distribution of English perfectly, the cross entropy would equal the entropy of English. But what is the entropy of English?
+
+\vspace{0.5em}
+
+This depends on the level of granularity:
+
+\begin{itemize}
+\item \textbf{Character level:} Shannon's classic estimate (1950) suggested around 1.0 to 1.5 bits per character, which is approximately 0.7 to 1.0 nats per character.
+
+\item \textbf{Token level with modern BPE:} Modern tokenizers use subword units (Byte Pair Encoding) with vocabularies of 50,000+ tokens. Each token captures multi character correlations. A BPE token averages about 4 characters, but because it captures correlations, the entropy per token is not simply 4× the character entropy. Empirically, well trained models achieve around 2 to 3 nats per token on English text, suggesting the true entropy is somewhere in that range or below.
+\end{itemize}
+
+\vspace{0.5em}
+
+So a model achieving 2.5 nats per token is approaching the theoretical limit. The remaining gap is the KL divergence between the model and the true distribution.
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Perplexity as Geometric Mean Branching Factor}
+
+Perplexity is just a different way of reporting cross entropy. It is the exponential of cross entropy:
+\begin{equation}
+\text{Perplexity} = \exp(H)
+\end{equation}
+
+If your cross entropy is 2.5 nats, your perplexity is $\exp(2.5) \approx 12.2$. What does perplexity mean? 
+
+Perplexity represents the geometric mean of the branching factor across predictions. A model with perplexity 12 has the same average uncertainty (in the geometric sense) as if it were uniformly choosing among 12 options at each step, though in reality, the model is sometimes nearly certain and sometimes highly uncertain, with 12 being the geometric mean of these varying levels of uncertainty.
+
+More precisely, perplexity is the weighted geometric mean of the inverse probabilities:
+\begin{equation}
+\text{Perplexity} = \exp\left(\frac{1}{n}\sum_{i=1}^{n} \log(1/p_i)\right) = \left(\prod_{i=1}^{n} \frac{1}{p_i}\right)^{1/n}
+\end{equation}
+
+To understand this concretely: at some predictions, the model might be nearly certain (assigns 99\% probability to one option, giving $1/p \approx 1.01$). At other predictions, the model might be highly uncertain (spreads probability over many options, giving large $1/p$ values like 100 or 1000). The geometric mean of all these inverse probabilities gives the perplexity.
+
+The geometric mean is the right way to average because probabilities multiply but we want codelengths to add. It captures the typical branching factor, even though no individual prediction necessarily has exactly that branching factor.
+
+Why use perplexity instead of cross entropy? Perplexity is dimensionless and gives an intuitive sense of scale. Cross entropy of 2.5 nats is abstract. Perplexity of 12 connects to "typical uncertainty is like choosing among a dozen options." But they contain exactly the same information.
+
+\subsection{Bits Per Dimension for Image Models}
+
+Note that perplexity is standard for language models but less common for other modalities. For image models, \textbf{bits per dimension (BPD)} is the standard metric. 
+
+BPD is the cross entropy (in bits) divided by the number of dimensions (pixels times channels). A model achieving 3 BPD on 32×32 RGB images has total cross entropy of $3 \times 32 \times 32 \times 3 = 9{,}216$ bits per image, or equivalently 3 bits per pixel-channel. 
+
+BPD normalizes across different image sizes and makes comparisons more interpretable: you can compare a model trained on 32×32 images to one trained on 64×64 images by looking at their BPD values, even though the total bits per image differs by a factor of four. A typical well trained image model might achieve around 3 to 4 BPD on natural images.
+
+The choice of metric (perplexity for language, BPD for images) depends on what gives the most intuitive sense of compression quality for your data type.
+
+\subsection{The Relationship Between Cross Entropy and Log Loss}
+
+You might be wondering: how do cross entropy and log loss relate? They are essentially the same thing, just viewed from different angles.
+
+Log loss is the loss function you minimize during training. For each training example, you compute $\log(1/p)$ where $p$ is the probability the model assigns to the correct outcome. You average these losses over the batch and take a gradient step.
+
+Cross entropy is the metric you report when evaluating on a test set. It is the average log loss over the test set. So cross entropy is just log loss, averaged and interpreted as expected codelength.
+
+The reason we have two names is historical and pedagogical. In machine learning, people talk about "minimizing log loss" when discussing training objectives. In information theory, people talk about "cross entropy" when discussing compression quality. But mathematically, they are the same quantity.
+
+\vspace{2em}
+
+%==========================
+\section{Rate Distortion and Generative Modeling as Source Coding}
+
+\subsection{The Fundamental Tradeoff}
+
+Shannon's theory also tells us about the fundamental tradeoff between compression and accuracy. You cannot compress data arbitrarily without losing information. The more you compress, the more distortion you introduce. Rate distortion theory formalizes this tradeoff.
+
+Let me give you the formal definition first, then build intuition. The rate distortion function $R(D)$ is defined as:
+\begin{equation}
+R(D) = \min_{p(\hat{x} \mid x): \mathbb{E}[d(x, \hat{x})] \leq D} I(X; \hat{X})
+\end{equation}
+
+In words: $R(D)$ is the minimum mutual information between the source $X$ and its reconstruction $\hat{X}$ needed to achieve expected distortion at most $D$, where $d(x, \hat{x})$ is your distortion measure (like squared error).
+
+Unpacking this definition:
+
+\begin{itemize}
+\item The \textbf{rate} is $I(X; \hat{X})$: how many bits of information about $X$ you preserve in $\hat{X}$
+\item The \textbf{distortion} is $\mathbb{E}[d(x, \hat{x})]$: the expected error when reconstructing $x$ from $\hat{x}$
+\item $R(D)$ tells you the minimum rate needed to achieve distortion at most $D$
+\item Equivalently, $D(R)$ (the inverse function) tells you the minimum distortion achievable with rate at most $R$
+\end{itemize}
+
+This is a fundamental limit. You cannot beat the rate distortion curve. If you want lower distortion, you must pay more bits. If you want to use fewer bits, you must accept higher distortion.
+
+\subsection{Lossy Compression and Generative Models}
+
+Rate distortion theory was originally developed for lossy compression: compressing images, audio, or video where perfect reconstruction is impossible or too expensive. But it applies equally to generative modeling.
+
+When you train a generative model, you are implicitly solving a rate distortion problem. The model has some capacity (determined by its architecture, number of parameters, amount of training). This capacity is the rate. The model has some error on the task (measured by cross entropy, mean squared error, or whatever metric you care about). This error is the distortion.
+
+A larger model (higher rate) achieves lower error (lower distortion). A smaller model (lower rate) achieves higher error (higher distortion). The relationship between model size and error is the empirical rate distortion curve for your task.
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Rate distortion in image generation}
+
+\vspace{0.5em}
+
+Suppose you are building an image generation model. You could use different architectures with different capacities:
+
+\vspace{0.5em}
+
+\textbf{Small model (10 million parameters):}
+
+This model has low rate: it uses few parameters, so it is cheap to store and fast to run. But it has high distortion: the generated images are blurry and lack detail. If you measure quality by perceptual similarity to real images, the distortion might be 0.4 on some normalized scale.
+
+\vspace{0.5em}
+
+\textbf{Medium model (100 million parameters):}
+
+This model has moderate rate and moderate distortion. The generated images look pretty good: recognizable objects, reasonable textures. The distortion might be 0.15.
+
+\vspace{0.5em}
+
+\textbf{Large model (1 billion parameters):}
+
+This model has high rate: it uses many parameters, so it is expensive to store and slow to run. But it has low distortion: the generated images are nearly photorealistic. The distortion might be 0.05.
+
+\vspace{0.5em}
+
+The choice between these models is a rate distortion tradeoff. For an application where quality is critical and cost is not a constraint (say, generating movie VFX), you might choose the large model. For an application where speed and cost matter (say, generating thumbnails in real time), you might choose the small model. The medium model is a balanced compromise.
+
+\vspace{0.5em}
+
+The key insight is that there is no universally "best" model. There is only the question: what distortion can I accept for a given rate budget, or what rate can I afford for a given distortion requirement?
+\end{examplebox}
+
+\vspace{1.5em}
+
+\subsection{Source Coding and Model Selection}
+
+In information theory, source coding is the problem of compressing data from a source. You observe samples from a distribution $p$ and you design a code that minimizes expected codelength. Shannon proved that the optimal average codelength equals the entropy $H(p)$.
+
+Generative modeling solves the same problem from a learning perspective. You observe samples from an unknown distribution $p^*$ and you try to learn an approximation $q$ to that distribution. Once you have a good estimate $q \approx p^*$, you can use $q$ to define a source code: assign codelength $\log(1/q(x))$ to each possible outcome $x$. The better your learned distribution $q$, the shorter the expected codelength when encoding data from $p^*$.
+
+This is why generative models and compression are two sides of the same coin:
+
+\begin{itemize}
+\item A good generative model is a good compressor (because it assigns high probability to the data, giving short codelengths)
+\item A good compressor implies a good generative model (because short average codelength implies the code distribution is close to the true distribution)
+\end{itemize}
+
+If you can compress data effectively, you have learned its distribution. If you have learned its distribution, you can generate realistic samples by sampling from your learned distribution, and you can compress new data efficiently using your learned distribution as a code.
+
+This duality is fundamental. Throughout this book, we will use "learning" and "compression" almost interchangeably, because information theory tells us they are the same problem viewed from different angles.
+
+\subsection{Variational Methods as Rate Distortion Optimization}
+
+Many modern generative models explicitly optimize a rate distortion objective. Variational autoencoders (VAEs), for instance, maximize the ELBO (evidence lower bound), which is equivalent to minimizing the negative ELBO:
+\begin{equation}
+-\text{ELBO} = \underbrace{-\mathbb{E}_{q}[\log p(x \mid z)]}_{\text{reconstruction error (distortion)}} + \underbrace{\beta \cdot \text{KL}(q(z \mid x) \| p(z))}_{\text{rate}}
+\end{equation}
+
+The first term measures how well you can reconstruct the data from the latent code. This is distortion: errors in reconstruction. The second term measures how much information the encoder uses, weighted by a parameter $\beta$. This is rate: the KL divergence between the encoder distribution and the prior tells you how many bits of information the latent code carries.
+
+When $\beta = 1$, you get the standard VAE, which maximizes the marginal likelihood $p(x)$. But different values of $\beta$ trace out different points on the rate distortion curve. This is called $\beta$-VAE:
+
+\begin{itemize}
+\item $\beta > 1$: more emphasis on compression (low rate), accepting higher distortion
+\item $\beta < 1$: more emphasis on reconstruction (low distortion), accepting higher rate
+\item $\beta = 1$: the standard VAE, which is optimal for maximum likelihood but not necessarily optimal for a specific rate or distortion target
+\end{itemize}
+
+Training a VAE (or $\beta$-VAE) is explicitly solving a rate distortion problem: find the encoder and decoder that minimize distortion subject to a constraint on rate, where $\beta$ controls the tradeoff.
+
+\subsection{Rate Distortion in Language Models}
+
+For language models, rate distortion appears in a different form. The model capacity (number of parameters, depth, width) serves as a proxy for rate. The cross entropy on data relates to distortion. Scaling laws (which we will discuss in detail in Part III) can be interpreted through this lens.
+
+Scaling laws tell you how cross entropy decreases as you increase model size, data size, or compute. They quantify the tradeoff: to get $x$ nats better cross entropy, you need to scale your model by a factor of $y$. This is analogous to a rate distortion relationship, though not identical in the technical sense.
+
+The connection is looser than in VAEs because:
+
+\begin{itemize}
+\item Rate distortion formally defines $R(D)$ as the minimum mutual information needed for distortion at most $D$
+\item Scaling laws are about model capacity versus loss, not information rate versus distortion directly
+\item Model capacity is a proxy for information rate, but the relationship is not precisely characterized
+\end{itemize}
+
+Nonetheless, the scaling law perspective is valuable: it tells you the fundamental cost of reducing cross entropy. If you are far from the empirical scaling curve (getting worse performance than expected for your model size), you are being inefficient. If you are on the curve, you are operating at the frontier, and further improvements require paying the cost dictated by the scaling relationship.
+
+Understanding this connection helps you make better decisions about model design. You can ask: what is the cheapest way to reduce cross entropy by 0.5 nats? Should I scale the model, increase data, train longer, or improve architecture? The scaling laws give you empirical guidance, interpreted through the rate distortion lens.
+
+\vspace{2em}
+
+%==========================
+\section{Bits, Budgets, and Decision Quality}
+
+\subsection{Why Thinking in Bits Changes Everything}
+
+Most machine learning practitioners think in terms of accuracy or error rate: what percentage of examples does the model get right? But this perspective throws away information. Accuracy is a binary threshold. Probabilities are a full distribution.
+
+When you think in bits (or nats), you capture the full picture. A model that predicts the right answer with 99\% confidence pays $\log(1/0.99) \approx 0.01$ nats. A model that predicts the right answer with 51\% confidence pays $\log(1/0.51) \approx 0.67$ nats. Both have 100\% accuracy if you threshold at 50\%, but they have very different qualities of prediction.
+
+Bits (or nats) tell you not just whether the model is right, but how confident it is. This is crucial for decision making. If a medical diagnosis system says "90\% chance of disease," you make different decisions than if it says "51\% chance of disease," even though both are technically "positive" predictions.
+
+\subsection{Information Budgets for System Design}
+
+An information budget is a target for how many bits (or nats) your system should use per prediction. You might decide that for your application, 3 nats per token is acceptable performance. This is your budget. Now the question becomes: how do you stay within budget?
+
+You have several options, each with different costs:
+
+\begin{itemize}
+\item Train a larger model (reduces nats, increases compute and memory cost)
+\item Use more training data (reduces nats, increases data collection cost)
+\item Add retrieval at inference time (reduces nats, increases latency and complexity)
+\item Increase context window (reduces nats, increases quadratic compute cost)
+\item Ensemble multiple models (reduces nats, increases inference cost)
+\end{itemize}
+
+The optimal choice depends on your cost structure. If training is cheap but inference is expensive (because you serve billions of queries), invest in a better trained model. If training is expensive but inference is cheap (because you serve few queries), use a smaller model with retrieval. The information budget framework makes these tradeoffs explicit.
+
+\subsection{Decision Theory and Expected Utility}
+
+Information theory connects to decision theory through the concept of expected utility. Suppose you need to make a decision $d$ based on a prediction. The decision has some utility $U(d, y)$ that depends on the true outcome $y$. Your expected utility is:
+\begin{equation}
+\mathbb{E}[U] = \sum_{y} p(y \mid x) U(d, y)
+\end{equation}
+
+The better your probability distribution $p(y \mid x)$, the better your expected utility. If your distribution is poorly calibrated (high cross entropy), you will make worse decisions on average.
+
+This is why reducing cross entropy by even 0.1 nats can be valuable in high stakes applications. Each nat of improvement translates to better calibrated probabilities, which translates to better decisions, which translates to real world value.
+
+\subsection{The Value of a Nat}
+
+How much is one nat worth? It depends entirely on the application and where you are on the performance curve. \textbf{The relationship between nats and task performance is highly non-linear}, and marginal value differs drastically from average value. This non-linearity is critical to understand.
+
+Here is a framework for thinking about this:
+
+\textbf{First, understand the non-linear relationship.} Cross entropy and accuracy do not have a linear relationship. The curve is typically steep at first (early improvements give large accuracy gains), then flattens (later improvements give small gains). Empirically, you often see:
+
+\begin{itemize}
+\item Early regime (poor models): 1 nat improvement might give 10+ percentage points of accuracy
+\item Middle regime (decent models): 1 nat improvement might give 2 to 5 percentage points
+\item Late regime (near optimal models): 1 nat improvement might give 0.1 percentage points or less
+\end{itemize}
+
+The exact relationship depends on your specific task and model family, which is why you must measure it empirically rather than assuming any particular functional form.
+
+\textbf{Second, marginal value depends on where you are.} The value of the next nat depends on your current cross entropy, not on some average value. If you are at 5 nats per example, the next nat is very valuable. If you are at 1.5 nats, the next nat gives much smaller improvements due to diminishing returns.
+
+\textbf{Third, trace the chain from nats to business value carefully:}
+
+\begin{enumerate}
+\item Measure the relationship between cross entropy and task success rate \emph{empirically on your specific task} (plot the actual curve from your data, do not assume linearity)
+\item Identify your current operating point on this curve to determine marginal value
+\item Measure the value of task success in your application
+\item Combine these to estimate the value of improving by one nat at your current position
+\end{enumerate}
+
+\vspace{1.5em}
+
+\begin{examplebox}
+\textbf{Value of a nat with realistic non-linearity}
+
+\vspace{0.5em}
+
+Suppose you are building a medical diagnosis system and you empirically measure the relationship between cross entropy and diagnostic accuracy:
+
+\vspace{0.5em}
+
+\begin{center}
+\begin{tabular}{cc}
+Cross Entropy (nats) & Accuracy (\%) \\
+\hline
+5.0 & 65 \\
+4.0 & 78 \\
+3.0 & 85 \\
+2.5 & 89 \\
+2.0 & 91.5 \\
+1.5 & 92.5 \\
+1.0 & 93.0 \\
+\end{tabular}
+\end{center}
+
+\vspace{0.5em}
+
+Notice the non-linearity:
+\begin{itemize}
+\item From 5.0 to 4.0 nats (first nat): accuracy improves by 13 points
+\item From 4.0 to 3.0 nats (second nat): accuracy improves by 7 points
+\item From 3.0 to 2.0 nats (third nat): accuracy improves by 6.5 points
+\item From 2.0 to 1.0 nats (fourth nat): accuracy improves by 1.5 points
+\end{itemize}
+
+The marginal value per nat is clearly declining. This is typical across many tasks.
+
+\vspace{0.5em}
+
+Now suppose each percentage point of accuracy saves 10 lives per year valued at \$10M each. Then:
+
+\begin{itemize}
+\item If you are currently at 5.0 nats, the next nat is worth approximately $13 \times 10 \times 10M = \$1.3B$ per year
+\item If you are currently at 3.0 nats, the next nat is worth approximately $6.5 \times 10 \times 10M = \$650M$ per year  
+\item If you are currently at 2.0 nats, the next nat is worth approximately $1.5 \times 10 \times 10M = \$150M$ per year
+\end{itemize}
+
+The value per nat varies by nearly 10x depending on where you are on the curve.
+
+\vspace{0.5em}
+
+\textbf{Important caveats about this example:}
+
+\begin{enumerate}
+\item This example makes simplifying assumptions: specialists are assumed 100\% accurate, costs are linear, and we ignore factors like specialist availability and capacity constraints. Real cost-benefit analysis would need to account for these complexities.
+
+\item The specific numbers and functional form of the cross entropy to accuracy relationship will differ for your task. You must measure it empirically rather than using these numbers.
+
+\item The relationship is non-linear with diminishing returns in almost all real tasks. Never assume a linear relationship when estimating value.
+\end{enumerate}
+\end{examplebox}
+
+\vspace{1.5em}
+
+In low stakes domains (entertainment recommendations, casual chatbots), even the first nat might be worth only pennies per user. The key is to measure the empirical relationship in your specific context, at your specific operating point, accounting for the non-linear nature of the cross entropy to performance curve.
+
+\subsection{Calibration and Decision Quality}
+
+One final crucial point: for decision making, calibration matters as much as discrimination. Discrimination is the ability to distinguish between outcomes (measured by metrics like AUC or accuracy). Calibration is whether your probabilities mean what they say (if you predict 80\%, the outcome should happen 80\% of the time).
+
+Cross entropy measures both discrimination and calibration together. A model can have good discrimination (it ranks positive cases higher than negative cases) but poor calibration (its probabilities are overconfident or underconfident). For decision making, you need both.
+
+This is why we focus on cross entropy and log loss throughout this book. They are the right metrics for probabilistic prediction. They incentivize models to be both discriminative and calibrated. And they connect directly to information theory, which gives us a principled framework for understanding learning, compression, and decision making as one unified story.
+
+\vspace{2em}
+
+%==========================
+\section{Why Generative Models Are Compression Engines (Sometimes)}
+
+\subsection{The Compression View of Generative Models}
+
+Generative models learn distributions over data. A language model learns a distribution over sequences of tokens. An image model learns a distribution over pixel configurations. These probability distributions correspond to compression schemes: common patterns get short codes, rare patterns get long codes.
+
+When you train a likelihood-based generative model on data, you are teaching it to compress that data. The better it compresses the training data, the better it has learned the patterns. And crucially, the better it compresses held out test data, the better it has generalized beyond mere memorization.
+
+This is why we evaluate likelihood-based generative models by measuring cross entropy or perplexity on test sets. Lower cross entropy means better compression, which means the model has learned more useful patterns, which means it will generate more realistic outputs.
+
+\textbf{Important caveat:} This compression interpretation holds for \textbf{likelihood-based generative models}: autoregressive models (like GPT), variational autoencoders (VAEs), and normalizing flows. These models define an explicit probability distribution $p(x)$, which directly corresponds to a code.
+
+However, other types of generative models generate samples without explicit likelihoods:
+
+\begin{itemize}
+\item \textbf{GANs (Generative Adversarial Networks)} train a generator and discriminator in opposition, but do not define $p(x)$ explicitly. You cannot use a GAN to compress data or measure log likelihood.
+
+\item \textbf{Diffusion models} learn to reverse a noising process. While you can derive a variational bound on log likelihood, diffusion models are not primarily optimized for likelihood. They can generate high quality samples with moderate or even poor likelihood.
+\end{itemize}
+
+For these models, the compression interpretation is less direct or does not apply at all. They are generative models, but not compression engines in Shannon's sense. They sample from an implicit distribution without defining it explicitly.
+
+\vspace{2em}
+
+%==========================
+\section{When Cross Entropy Is Not Enough}
+
+\subsection{The Limits of Likelihood Based Metrics}
+
+Throughout this chapter, we have emphasized cross entropy and log likelihood as the fundamental metrics for learning. But it is important to understand when these metrics fail to capture what we actually care about.
+
+\textbf{Generative image quality:} In image generation, models with better likelihood do not always produce better images by human perception. A model might achieve excellent likelihood by capturing high frequency noise patterns that are statistically present in natural images but visually unappealing. Conversely, a GAN might generate sharp, realistic images while having poor or undefined likelihood. Human perceptual quality and likelihood can diverge.
+
+\textbf{Mode coverage versus mode quality:} Likelihood-based models are incentivized to cover all modes of the data distribution. If 1\% of images are of rare objects, the model should assign appropriate probability mass to those images. But for generation, you might prefer a model that ignores rare modes and generates high quality samples from common modes. Maximum likelihood and maximum sample quality are different objectives.
+
+\textbf{Long form coherence:} For long form text generation, average per token cross entropy does not capture discourse coherence, factual consistency, or narrative quality. A model might have excellent per token likelihood while generating incoherent or contradictory text over longer spans.
+
+\textbf{Retrieval and ranking:} In retrieval systems, you care about whether the top k results are relevant, not about the full probability distribution over all documents. Cross entropy over all documents is an imperfect proxy for top k precision.
+
+\subsection{When to Use Cross Entropy and When to Use Something Else}
+
+Cross entropy is the right metric when:
+
+\begin{itemize}
+\item You care about probabilistic prediction (forecasting, risk assessment, calibrated uncertainty)
+\item You need to make decisions under uncertainty with proper loss functions
+\item You want to compress data efficiently
+\item You are training likelihood-based models (autoregressive, VAEs, flows)
+\end{itemize}
+
+But you should consider other metrics when:
+
+\begin{itemize}
+\item Human perceptual quality matters more than statistical fidelity (use human evaluation, FID scores, perceptual losses)
+\item You care about sample quality more than mode coverage (use precision and recall metrics for generative models)
+\item Long range coherence or factuality matters (use task specific evaluation, human judgment)
+\item You are optimizing for retrieval or ranking (use precision at k, NDCG, or other ranking metrics)
+\end{itemize}
+
+This does not mean cross entropy is wrong. It means cross entropy measures one aspect of model quality (how well the model matches the data distribution), and this aspect does not always align with what you ultimately care about.
+
+Throughout this book, we will focus heavily on cross entropy and information theory because they provide a rigorous foundation for understanding learning. But we will also acknowledge when these foundations need to be supplemented with other evaluation criteria that better match your actual objectives.
+
+\vspace{2em}
+
+%==========================
+
+\begin{pausebox}
+Before moving to the next chapter, take a moment to consolidate what we have covered. Can you explain why probability and codelength are two sides of the same coin? Can you describe what cross entropy measures in terms of compression? Do you understand the difference between two part MDL and refined MDL, and why encoding choices matter? Can you explain the formal definition of $R(D)$ and why rate distortion is a fundamental tradeoff, not just an engineering compromise? Can you articulate why thinking in nats helps you make better decisions about model design?
+
+\vspace{0.5em}
+
+Can you explain why perplexity is a geometric mean branching factor, not literally "equally likely choices at each step"? Do you understand why bits per dimension is used for images while perplexity is standard for language? Can you describe how the value of a nat depends on the non-linear relationship between cross entropy and task performance, and why marginal value differs from average value?
+
+\vspace{0.5em}
+
+Critically, can you articulate when cross entropy is the right metric and when it is not? Do you understand why GANs and diffusion models are not compression engines in Shannon's sense? Can you explain why perceptual quality and likelihood can diverge?
+
+\vspace{0.5em}
+
+If any of these ideas still feel fuzzy, revisit that section. This chapter is the foundation for everything that follows. The language of information theory will appear again and again as we explore Bayesian inference, geometric perspectives, model architectures, and system design. But understanding both the power and limitations of information theoretic metrics is essential. The time you invest in deeply understanding these concepts will pay dividends throughout the book.
+\end{pausebox}
+
+\vspace{1em}
+
+This chapter established that learning is compression, that log loss is codelength, and that thinking in information budgets leads to better systems. We built the foundational connection between Shannon's information theory and modern machine learning. We explored how MDL provides a principled (though not unique) approach to model selection. We understood cross entropy and perplexity as measures of compression quality, and we saw how rate distortion theory formalizes the fundamental tradeoff between compression and fidelity.
+
+Importantly, we also confronted the limitations: cross entropy is not always the right metric. For perceptual quality, long form coherence, or retrieval tasks, you need to supplement information theoretic metrics with task specific evaluation. And not all generative models are compression engines in Shannon's sense: GANs and diffusion models generate samples without explicit likelihoods.
+
+In the next chapter, we will explore Bayesian predictive inference: what it means to make predictions when you are uncertain about your model, how exchangeability connects to the order of data, and why modern deep networks can be understood as approximate Bayes. The information theoretic foundation we built here will guide us through these ideas, while the understanding of when likelihood based metrics fall short will help us navigate the practical realities of building reliable systems.

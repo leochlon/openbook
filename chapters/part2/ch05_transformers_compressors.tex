@@ -1,0 +1,33 @@
+\section{Autoregression Through the Lens of Incremental Compression}
+
+\vspace{1.5em}
+\begin{keyinsight}
+Autoregressive models are not just predicting the next token, they are incrementally compressing sequences by exploiting conditional dependencies. Each prediction represents the optimal code for the next symbol given all previous symbols, and the transformer architecture implements a sophisticated conditional compression scheme through its attention mechanism.
+\end{keyinsight}
+
+\vspace{1.5em}
+
+
+Let's start with the fundamental question: what is an autoregressive model really doing when it predicts $p(x_t \mid x_1, \ldots, x_{t-1})$?
+
+From the information theory perspective we developed in Chapter 1, this conditional probability directly corresponds to the optimal codelength for $x_t$ given the context. The model is learning how to compress sequences by exploiting patterns in the conditional structure of the data.
+
+\subsection{The Compression View of Autoregression}
+
+Consider a sequence $x_1, x_2, \ldots, x_n$. The joint probability factorizes as:
+\begin{equation}
+p(x_1, \ldots, x_n) = p(x_1) \, p(x_2|x_1) \, p(x_3|x_1, x_2) \, \cdots \, p(x_n|x_1, \ldots, x_{n-1}).
+\end{equation}
+
+Taking logarithms and interpreting through the lens of compression, the total code length under an optimal code is:
+\begin{align}
+    L(x_1, \ldots, x_n)
+    &= -\log p(x_1, \ldots, x_n) \\
+    &= -\sum_{k=1}^n \log p(x_k \mid x_1, x_2, \ldots, x_{k-1}) \\
+    &= \sum_{k=1}^n \log \frac{1}{p(x_k \mid x_1, x_2, \ldots, x_{k-1})}.
+\end{align}
+
+Each term represents the incremental number of bits required to encode the next token given all previous tokens. The autoregressive model learns these conditional distributions to minimize the total description length of the sequence.
+
+This immediately reveals why context matters so much: the more context you condition on, the better you can predict (compress) the next token. Indeed, a model with perfect memory of all previous tokens can achieve optimal compression for any stationary ergodic process.
+

@@ -20,7 +20,7 @@ jobs:
         fetch-depth: 0
         lfs: true
     
-    - name: Install TeX Live
+    - name: Install TeX Live with all required packages
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -28,6 +28,7 @@ jobs:
           texlive-latex-extra \
           texlive-fonts-extra \
           texlive-bibtex-extra \
+          texlive-lang-arabic \
           biber \
           poppler-utils
     
@@ -67,3 +68,13 @@ jobs:
         name: book-pdf
         path: main.pdf
         retention-days: 30
+    
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          main.log
+          main.blg
+        retention-days: 7
